@@ -1,0 +1,62 @@
+name: Модель синхронизации (английский)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/model-en.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Зависимости
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
+          pip install transformers==4.44.2 onnx==1.16.2 onnxruntime==1.19.2 datasets==2.21.0 soundfile librosa numpy==1.26.4
+      - name: Экспорт wav2vec2-base-960h (Apache-2.0) в ONNX int8
+        run: |
+          cat > export.py <<'EOF'
+          import torch, json, numpy as np, onnxruntime as ort
+          from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+          from onnxruntime.quantization import quantize_dynamic, QuantType
+          name = 'facebook/wav2vec2-base-960h'
+          m = Wav2Vec2ForCTC.from_pretrained(name).eval(); p = Wav2Vec2Processor.from_pretrained(name)
+          class Wr(torch.nn.Module):
+              def __init__(s, m): super().__init__(); s.m = m
+              def forward(s, x): return torch.log_softmax(s.m(x).logits, -1)
+          torch.onnx.export(Wr(m), torch.randn(1, 16000 * 4), 'w2v.onnx', input_names=['input'], output_names=['logprobs'],
+                            dynamic_axes={'input': {1: 'n'}, 'logprobs': {1: 't'}}, opset_version=17, do_constant_folding=True)
+          quantize_dynamic('w2v.onnx', 'model.int8.onnx', weight_type=QuantType.QUInt8, op_types_to_quantize=['MatMul', 'Gemm'])
+          voc = p.tokenizer.get_vocab(); json.dump(voc, open('vocab.json', 'w'))
+          inv = {v: k for k, v in voc.items()}
+          from datasets import load_dataset
+          ds = load_dataset('hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation')
+          s = ort.InferenceSession('model.int8.onnx'); rep = []
+          for i in range(3):
+              a = np.asarray(ds[i]['audio']['array'], dtype=np.float32); a = (a - a.mean()) / np.sqrt(a.var() + 1e-7)
+              lp = s.run(None, {'input': a[None]})[0][0]; ids = lp.argmax(-1); out = []; pv = -1
+              for t in ids:
+                  if t != pv and t != voc['<pad>']: out.append(inv[int(t)])
+                  pv = t
+              rep.append('REF: ' + ds[i]['text'] + '\nHYP: ' + ''.join(out).replace('|', ' ') + f'\nframes {lp.shape[0]} for {len(a)/16000:.2f}s')
+          with torch.no_grad():
+              x = torch.randn(1, 16000 * 3); ref = Wr(m)(x).numpy()
+          d = np.abs(ort.InferenceSession('w2v.onnx').run(None, {'input': x.numpy()})[0] - ref).max()
+          rep.append(f'fp32 onnx maxdiff {d:.2e}')
+          open('report.txt', 'w').write('\n\n'.join(rep)); print('\n\n'.join(rep))
+          EOF
+          python export.py
+          ls -la *.onnx vocab.json
+      - name: Релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: model-en-v1
+          name: Модель синхронизации · английский
+          body_path: report.txt
+          files: |
+            model.int8.onnx
+            vocab.json
