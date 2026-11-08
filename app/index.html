@@ -41,11 +41,14 @@
       <div class="hint">Подсказка: латиницу и цифры можно подсказать в фигурных скобках — <code>love{лав}</code>, <code>1:0{одинноль}</code>. Скобки на экран не попадут.</div>
       <label class="lbl">Где искать текст в треке (сек)</label>
       <div class="row"><input id="alFrom" type="number" step="0.1" placeholder="с начала"><span class="muted">—</span><input id="alTo" type="number" step="0.1" placeholder="до конца"></div>
+      <div class="row" style="margin-top:10px"><select id="alLang" style="max-width:130px"><option value="ru">русский</option><option value="en">English</option></select><label class="chk"><input type="checkbox" id="alVocals"> сначала отделить вокал</label></div>
+      <div class="hint" id="alVocHint" hidden>Нейросеть уберёт бит перед синхронизацией — точнее на громком минусе, но дольше: примерно минута на минуту трека. Укажите отрезок выше, чтобы не обрабатывать весь трек.</div>
       <button id="bAlign" class="primary wide">Синхронизировать слова</button>
       <div id="alignStatus" class="status"></div>
       <label class="lbl">Строк в сцене (для авторазбивки)</label>
       <div class="row seg" id="perScene"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="3">3</button></div>
-      <label class="chk" style="margin-top:8px"><input type="checkbox" id="autoKin"> добавлять сцены-типографику</label>
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="autoSmart" checked> подбирать шаблоны по словам строки</label>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="autoKin"> добавлять сцены-типографику</label>
       <button id="bAutoScenes" class="wide">Разбить на сцены заново</button>
     </section>
     <section data-pane="words" hidden>
@@ -90,6 +93,14 @@
           <button id="seSplit" title="Разделить на месте курсора (S)">разделить</button>
           <button id="seMergeNext" title="Объединить со следующей (M)">объединить ⇥</button>
         </div>
+        <div id="seMulti" class="note" hidden></div>
+        <div id="seRepeats" class="note" hidden></div>
+        <div class="row tight" style="margin-top:6px">
+          <button id="seCopy" title="Ctrl+C">копировать вид</button>
+          <button id="sePaste" title="Ctrl+V">вставить вид</button>
+          <button id="seSaveTpl" title="Сохранить сцену как свой шаблон">в мои шаблоны</button>
+        </div>
+        <div id="seSaveTplBox" class="row" hidden style="margin-top:6px"><input id="seTplNameIn" placeholder="название шаблона"><button id="seSaveTplGo">Сохранить</button></div>
         <label class="lbl">Шаблон</label>
         <button id="seTpl" class="tplBtn"><img id="seTplImg" alt=""><span id="seTplName"></span><span class="muted">сменить…</span></button>
         <div id="seFields"></div>
@@ -117,6 +128,27 @@
       <label class="lbl">Вотермарка: текст и/или логотип</label>
       <div class="row"><input id="wm" placeholder="melhor"><input id="wmOp" type="range" min="0.08" max="0.8" step="0.01" title="прозрачность"></div>
       <div class="row" style="margin-top:6px"><div id="wmLogo" class="imgPick"></div></div>
+      <details class="more" id="bgBox">
+        <summary>Фон: своё фото или видео</summary>
+        <div class="row"><div id="bgPick" class="imgPick"></div></div>
+        <div id="bgOpts">
+          <label class="lbl">Размытие <span id="bgBlurV" class="muted"></span></label><input id="bgBlur" type="range" min="0" max="30" step="1">
+          <label class="lbl">Затемнение <span id="bgDimV" class="muted"></span></label><input id="bgDim" type="range" min="0" max="0.8" step="0.05">
+          <label class="chk" id="bgZoomBox"><input type="checkbox" id="bgZoom"> медленный наезд камеры (для фото)</label>
+        </div>
+      </details>
+      <details class="more" id="ioBox">
+        <summary>Интро и аутро</summary>
+        <label class="chk"><input type="checkbox" id="inOn"> интро: название трека крупно перед первой строкой</label>
+        <div class="row" style="margin-top:6px"><input id="inTitle" placeholder="название трека"><input id="inDur" type="number" step="0.5" min="1" max="6" title="секунд" style="max-width:70px"></div>
+        <input id="inLabel" placeholder="надпись сверху: сейчас играет" style="margin-top:6px">
+        <label class="chk" style="margin-top:10px"><input type="checkbox" id="outOn"> аутро: призыв в конце</label>
+        <div class="row" style="margin-top:6px"><input id="outText" placeholder="слушай везде"><input id="outDur" type="number" step="0.5" min="1" max="6" title="секунд" style="max-width:70px"></div>
+        <input id="outSub" placeholder="кнопка: ссылка в профиле" style="margin-top:6px">
+        <div class="hint">Интро и аутро добавляют секунды трека до первой и после последней строки.</div>
+      </details>
+      <label class="lbl">Адлибы — слова в скобках, например (эй)</label>
+      <select id="adlibs"><option value="chip">плашками у карточки</option><option value="inline">оставить в строке</option><option value="none">не показывать</option></select>
       <details class="more" id="ctor">
         <summary>Конструктор стиля</summary>
         <label class="chk"><input type="checkbox" id="cOn"> свой стиль поверх пресета</label>
@@ -173,7 +205,7 @@
     <label class="lbl">Куда</label>
     <div class="row seg wrap" id="xPlat"><button data-v="" class="on">Свой</button><button data-v="reels">Reels</button><button data-v="tiktok">TikTok</button><button data-v="shorts">Shorts</button></div>
     <label class="lbl">Файл</label>
-    <div class="row seg" id="xCont"><button data-v="mp4" class="on">MP4</button><button data-v="mov">MOV · прозрачный фон</button><button data-v="webm">WebM · прозрачный</button></div>
+    <div class="row seg" id="xCont"><button data-v="mp4" class="on">MP4</button><button data-v="mov">MOV · прозрачный фон</button><button data-v="webm">WebM · прозрачный</button><button data-v="gif">GIF</button></div>
     <div id="xAlphaHint" class="hint" hidden>Фон, дым и частицы не попадут в видео — останутся карточки, текст и эмодзи. MOV (ProRes 4444) открывают Premiere, DaVinci, Final Cut и CapCut на компьютере; файл большой.</div>
     <label class="lbl">Качество</label>
     <div class="row seg" id="xRes"><button data-v="720">720p</button><button data-v="1080" class="on">1080p</button><button data-v="1440">1440p</button><button data-v="2160">4K</button></div>
@@ -184,6 +216,17 @@
     <div class="bar"><i id="xBar"></i></div>
     <div id="xStatus" class="status"></div>
     <div class="row"><button id="xGo" class="primary wide">Сохранить видео…</button><button id="xCancel" hidden>Отмена</button><button id="xShow" hidden>Показать в папке</button></div>
+    <details class="more" id="xQueueBox">
+      <summary>Очередь: несколько версий за раз <span id="xQn" class="muted"></span></summary>
+      <div class="row tight"><button id="xQAdd">+ текущие настройки</button><button id="xQ3">+ 9:16, 1:1 и 16:9</button></div>
+      <div id="xQList"></div>
+      <button id="xQGo" class="wide">Сохранить всю очередь в папку…</button>
+    </details>
+    <details class="more">
+      <summary>Картинки: кадр и обложка</summary>
+      <div class="row tight"><button id="xFrame">Текущий кадр в PNG</button><button id="xCover">Обложка в PNG</button></div>
+      <div class="hint">Обложка — название трека крупно и ник артиста в текущем стиле, размер по формату ролика.</div>
+    </details>
   </div>
 </div>
 
@@ -199,6 +242,8 @@
       <tr><td><kbd>S</kbd></td><td>разрезать сцену на месте курсора</td></tr>
       <tr><td><kbd>M</kbd></td><td>объединить сцену со следующей</td></tr>
       <tr><td><kbd>G</kbd></td><td>сменить шаблон сцены</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+клик, <kbd>Shift</kbd>+клик</td><td>выделить несколько сцен</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>скопировать вид сцены / вставить на выделенные</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>отменить</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>повторить</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>сохранить (с Shift — сохранить как)</td></tr>

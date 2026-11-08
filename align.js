@@ -84,10 +84,29 @@ function parseLyrics(text) {
       tok = tok.replace(/ /g, ' ');
       const disp = tok.replace(/\{[^}]*\}/g, ''), sp = spoken(tok);
       if (!sp && words.length && words[words.length - 1].line === li) { const last = words[words.length - 1]; last.w += /^[,.!?…:;)»"]+$/.test(disp) ? disp : ' ' + disp; continue; }
-      words.push({ w: disp, say: sp, line: li });
+      const hm = tok.match(/\{([^}]*)\}/); words.push({ w: disp, say: sp, line: li, hint: hm ? '{' + hm[1] + '}' : '' });
     }
   });
   return { words, lines };
+}
+// ---------- английский: wav2vec2 (буквы A–Z, ' и разделитель |), вход — сам звук 16 кГц ----------
+const NUM_EN = { '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine', '%': 'percent', '$': 'dollars', '&': 'and', '@': 'at' };
+function spokenEn(word) {
+  const m = word.match(/\{([^}]*)\}/), useHint = m && /[a-z]/i.test(m[1]); let w = (useHint ? m[1] : word.replace(/\{[^}]*\}/g, '')).toLowerCase();
+  if (!useHint) for (const k in NUM_EN) w = w.split(k).join(' ' + NUM_EN[k] + ' ');
+  return w.toUpperCase().replace(/[^A-Z']/g, '');
+}
+// runRaw(Float32Array звука, нормированный) -> {data, T2, V}; кусками по 30 с с перекрытием 1 с, 50 кадров/с
+async function logprobsRaw(x, runRaw) {
+  const CH = 16000 * 30, OV = 16000, HOP = 320, parts = []; let V = 0, pos = 0;
+  const norm = a => { let m = 0; for (const v of a) m += v; m /= a.length || 1; let q = 0; for (const v of a) q += (v - m) * (v - m); const sd = Math.sqrt(q / (a.length || 1) + 1e-7), o = new Float32Array(a.length); for (let i = 0; i < a.length; i++) o[i] = (a[i] - m) / sd; return o; };
+  while (pos < x.length) {
+    const a = Math.max(0, pos - OV), b = Math.min(x.length, pos + CH + OV), r = await runRaw(norm(x.subarray(a, b))); V = r.V;
+    const k0 = Math.round((pos - a) / HOP), k1 = Math.min(r.T2, k0 + Math.round((Math.min(pos + CH, x.length) - pos) / HOP));
+    parts.push(r.data.subarray(k0 * V, k1 * V)); pos += CH;
+  }
+  const tot = parts.reduce((s, p) => s + p.length, 0), data = new Float32Array(tot); let o = 0; for (const p of parts) { data.set(p, o); o += p.length; }
+  return { data, T2: tot / V, V };
 }
 function viterbi(lp, T, V, seq, B) {
   const S = [B]; for (const t of seq) S.push(t, B);
@@ -110,33 +129,35 @@ function viterbi(lp, T, V, seq, B) {
   return p;
 }
 
-// Главная функция. opts: {ffmpeg, modelDir, audioPath, lyrics, from, to, runChunk, progress}
+// Главная функция. opts: {ffmpeg, modelDir, audioPath, lyrics, from, to, offset, lang: 'ru'|'en', runChunk (ru), runRaw (en), progress}
 async function align(opts) {
-  const P = opts.progress || (() => {});
+  const P = opts.progress || (() => {}), en = opts.lang === 'en';
   P('Читаю звук…');
-  const off = opts.from != null ? +opts.from : 0;
+  const off = opts.offset != null ? +opts.offset : opts.from != null ? +opts.from : 0;
   const x = await load16k(opts.ffmpeg, opts.audioPath, opts.from, opts.to), dur = x.length / 16000;
-  P('Считаю спектр…'); const F = fbank(x);
-  P('Слушаю вокал (нейросеть)…'); const L = await logprobs(F, opts.runChunk);
+  let L;
+  if (en) { P('Слушаю вокал (нейросеть, английский)…'); L = await logprobsRaw(x, opts.runRaw); }
+  else { P('Считаю спектр…'); const F = fbank(x); P('Слушаю вокал (нейросеть)…'); L = await logprobs(F, opts.runChunk); }
   const { data: lp, T2: T, V } = L, fs_ = dur / T;
-  const tk = readTokens(opts.modelDir), B = Math.max(...Object.keys(tk).map(Number)), c2i = {};
-  for (const k in tk) if (tk[k].trim()) c2i[tk[k]] = +k;
-  let greedy = '', pv = -1; const ids = new Int32Array(T);
-  for (let t = 0; t < T; t++) { let bi = 0, bv = -Infinity; for (let v = 0; v < V; v++) { const q = lp[t * V + v]; if (q > bv) { bv = q; bi = v; } } ids[t] = bi; if (bi !== B && bi !== pv) greedy += tk[bi]; pv = bi; }
+  let tk, B, c2i = {}, sep = -1;
+  if (en) { const voc = JSON.parse(fs.readFileSync(path.join(opts.modelDir, 'vocab.json'), 'utf8')); tk = {}; for (const k in voc) { tk[voc[k]] = k === '|' ? ' ' : k; if (k.length === 1) c2i[k] = voc[k]; } B = voc['<pad>']; sep = voc['|']; }
+  else { tk = readTokens(opts.modelDir); B = Math.max(...Object.keys(tk).map(Number)); for (const k in tk) if (tk[k].trim()) c2i[tk[k]] = +k; }
+  let greedy = '', pv = -1;
+  for (let t = 0; t < T; t++) { let bi = 0, bv = -Infinity; for (let v = 0; v < V; v++) { const q = lp[t * V + v]; if (q > bv) { bv = q; bi = v; } } if (bi !== B && bi !== pv && tk[bi] && tk[bi].length === 1) greedy += tk[bi]; pv = bi; }
   greedy = greedy.replace(/ +/g, ' ').trim();
   P('Расставляю слова…');
   const { words, lines } = parseLyrics(opts.lyrics), seq = [], wid = [];
-  words.forEach((w, i) => { for (const ch of w.say) { if (c2i[ch] == null) continue; seq.push(c2i[ch]); wid.push(i); } });
-  if (!seq.length) throw new Error('в тексте нет русских букв для выравнивания');
+  words.forEach((w, i) => { const say = en ? spokenEn(w.w + (w.hint || '')) : w.say; if (en && i && seq.length && sep >= 0) { seq.push(sep); wid.push(-1); } for (const ch of say) { if (c2i[ch] == null) continue; seq.push(c2i[ch]); wid.push(i); } });
+  if (!seq.filter((c, j) => wid[j] >= 0).length) throw new Error(en ? 'в тексте нет английских букв для выравнивания' : 'в тексте нет русских букв для выравнивания');
   const pathArr = viterbi(lp, T, V, seq, B), first = {}, last = {}, score = {};
-  for (let t = 0; t < T; t++) { const n = pathArr[t]; if (n % 2 === 1) { const j = (n - 1) >> 1; if (first[j] == null) first[j] = t; last[j] = t; (score[wid[j]] = score[wid[j]] || []).push(lp[t * V + seq[j]]); } }
+  for (let t = 0; t < T; t++) { const n = pathArr[t]; if (n % 2 === 1) { const j = (n - 1) >> 1; if (wid[j] < 0) continue; if (first[j] == null) first[j] = t; last[j] = t; (score[wid[j]] = score[wid[j]] || []).push(lp[t * V + seq[j]]); } }
   for (const j in first) if (words[wid[j]].t == null) words[wid[j]].t = +(first[j] * fs_).toFixed(3);
   for (const j in last) words[wid[j]].e = +((last[j] + 1) * fs_).toFixed(3);
   words.forEach((w, i) => { if (w.t == null) { w.t = i ? words[i - 1].e : 0; w.e = w.t + 0.1; } const s = score[i] || [-9]; w.conf = +Math.exp(s.reduce((a, b) => a + b, 0) / s.length).toFixed(2); });
   words.forEach((w, i) => { const nxt = i + 1 < words.length ? words[i + 1].t : dur; w.e = +Math.max(w.e, Math.min(nxt, w.t + 1.2)).toFixed(3); });
   const confs = words.map(w => w.conf).sort((a, b) => a - b), median = confs.length ? confs[Math.floor(confs.length / 2)] : 0;
-  words.forEach(w => { w.t = +(w.t + off).toFixed(3); w.e = +(w.e + off).toFixed(3); delete w.say; });
+  words.forEach(w => { w.t = +(w.t + off).toFixed(3); w.e = +(w.e + off).toFixed(3); delete w.say; delete w.hint; });
   return { words, lines, transcript: greedy, median, duration: null };
 }
 
-module.exports = { align, fbank, viterbi, parseLyrics, spoken, readTokens, logprobs, load16k, MODEL_URL };
+module.exports = { align, fbank, viterbi, parseLyrics, spoken, spokenEn, readTokens, logprobs, logprobsRaw, load16k, MODEL_URL };

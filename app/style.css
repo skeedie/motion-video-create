@@ -128,3 +128,17 @@ table.keys{width:100%;border-collapse:collapse;font-size:13px}
 table.keys td{padding:6px 4px;border-bottom:1px solid var(--line)}
 table.keys td:first-child{white-space:nowrap;width:42%}
 kbd{background:var(--p3);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font:600 11px Inter}
+
+.note{margin-top:8px;padding:8px 10px;border-radius:9px;background:var(--p2);border:1px solid var(--line);font-size:12px;color:var(--mut);line-height:1.4}
+.note b{color:var(--tx)}
+.note .chk{margin-top:4px}
+.sc.msel{border-color:#6d55c9;background:#241f38}
+.tp{position:relative}
+.tp .del{position:absolute;right:10px;top:10px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.7);color:#fff;font-style:normal;font-size:12px;line-height:22px;text-align:center;display:none}
+.tp:hover .del{display:block}
+.vchip{background:var(--p3);padding:6px 10px;border-radius:8px;font-size:12px;white-space:nowrap}
+#xQList{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+#xQList .q{display:flex;align-items:center;gap:8px;background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12px}
+#xQList .q span{flex:1}
+#xQList .q.done{border-color:#2f6b45}#xQList .q.err{border-color:var(--red)}#xQList .q.run{border-color:var(--acc)}
+.chk{white-space:normal}.chk input[type=checkbox]{flex:none;width:15px;height:15px;margin:0}

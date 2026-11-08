@@ -16,14 +16,15 @@ const BUILTIN_FONTS = ['Inter Display', 'Inter', 'Nunito', 'DejaVu Sans Mono'];
 const TPL = Object.fromEntries(TEMPLATES.map(t => [t.id, t]));
 let ENGINE = '', PRESETS = {}, USER_PRESETS = {};
 let proj = newProject(), sel = 0, audioUrl = null, audioData = null, specCache = null, beatInfo = null, playing = false, rebuildTimer = null, frameReady = false;
-let projPath = null, dirty = false, lastExportPath = null;
+let projPath = null, dirty = false, lastExportPath = null, msel = new Set([0]), clip = null, USER_TPL = {};
 const audio = new Audio();
 
 function newProject() {
   return { version: 2, audioPath: '', audioName: '', lyrics: '', alFrom: '', alTo: '', words: [], duration: 0, perScene: 2, scenes: [], assets: {}, fonts: [],
     style: { preset: 'melhor-lenta', format: '9:16', start: 0, end: 0, artist: 'melhor', title: '', wm: 'melhor', wmOp: 0.2, wmImg: '', part: '', partColor: '#ffffff', beat: null, smokeOn: false, smokeA: '#78aa78', smokeB: '#9678c8', lead: null, fade: 0.4,
       trans: '', custom: { on: false, theme: 'cards', bgType: 'gradient', bg1: '#F6F5F3', bg2: '#E4DAFF', font: 'Inter Display', accent: '#E10600', tilt: 3 },
-      fx: { grain: 0, vhs: 0, aberr: 0, shake: 0 } } };
+      fx: { grain: 0, vhs: 0, aberr: 0, shake: 0 }, bgMedia: null, adlibs: 'chip',
+      intro: { on: false, title: '', label: '', dur: 2.5 }, outro: { on: false, text: 'слушай везде', sub: 'ссылка в профиле', dur: 3 } } };
 }
 const toast = (m, ms = 2400) => { const t = $('#toast'); t.innerHTML = ''; t.textContent = m; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), ms); };
 function toastErr(m) {
@@ -69,7 +70,7 @@ function fontOptions(val) { return [...new Set(allFonts())].map(f => `<option ${
 
 // ---------- контекст сцены для шаблонов ----------
 function sceneCtx(sc) {
-  const ws = proj.words.slice(sc.a, sc.b), n = ws.length, groups = [];
+  const inl = proj.style.adlibs === 'inline', ws = proj.words.slice(sc.a, sc.b).map((w, i) => Object.assign({ gi: sc.a + i }, w)).filter(w => inl || !w.adlib), n = ws.length, groups = [];
   ws.forEach((w, i) => { const g = groups[groups.length - 1]; if (g && g.line === w.line) g.b = i + 1; else groups.push({ line: w.line, a: i, b: i + 1 }); });
   const parts = of => {
     if (groups.length >= of) { const per = groups.length / of, out = []; for (let k = 0; k < of; k++) { const g0 = groups[Math.round(k * per)], g1 = groups[Math.round((k + 1) * per) - 1]; out.push([g0.a, g1.b]); } return out; }
@@ -78,8 +79,8 @@ function sceneCtx(sc) {
   return {
     n, all: '$line',
     part: (k, of) => { const p = parts(of)[k]; return p[1] > p[0] ? `$line[${p[0]}:${p[1]}]` : ''; },
-    at: (k, of) => sc.a + Math.min(n - 1, parts(of)[k][0]),
-    word: i => sc.a + Math.max(0, Math.min(n - 1, i))
+    at: (k, of) => n ? ws[Math.min(n - 1, parts(of)[k][0])].gi : sc.a,
+    word: i => n ? ws[Math.max(0, Math.min(n - 1, i))].gi : sc.a
   };
 }
 function sceneText(sc) { return proj.words.slice(sc.a, sc.b).map(w => w.w).join(' '); }
@@ -130,7 +131,12 @@ function buildSpec(forExport, opts = {}) {
     if (s.kinetic && c.on && !s.kinetic.accent) s.kinetic.accent = c.accent;
     return s;
   });
-  spec.words = proj.words.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line }));
+  spec.words = proj.words.map(w => w.adlib ? { w: w.w, t: w.t, e: w.e, line: w.line, adlib: true } : { w: w.w, t: w.t, e: w.e, line: w.line });
+  spec.adlibs = st.adlibs || 'chip';
+  const bm = st.bgMedia; if (bm && (bm.asset || bm.path)) spec.bgMedia = { type: bm.type, src: bm.type === 'video' ? api.mediaUrl(bm.path) : asset('asset:' + bm.asset), blur: +bm.blur || 0, dim: +bm.dim || 0, zoom: bm.zoom ? 0.12 : 0 };
+  const lastE = proj.words.length ? proj.words[proj.words.length - 1].e : spec.end;
+  if (st.intro && st.intro.on && proj.words.length) { const d = +st.intro.dur || 2.5; spec.start = Math.max(0, +spec.start - d); spec.intro = { t0: spec.start, title: st.intro.title || st.title || (proj.audioName || '').replace(/\.[^.]+$/, ''), artist: st.artist, label: st.intro.label || undefined }; }
+  if (st.outro && st.outro.on && proj.words.length) { const d = +st.outro.dur || 3, t0 = Math.min(+spec.end, lastE + .35); spec.end = Math.min(proj.duration || 1e9, t0 + d); spec.outro = { t0, text: st.outro.text || 'слушай везде', sub: st.outro.sub, artist: st.artist }; }
   spec.duration = proj.duration;
   if (specCache && spec.spectrum !== false) spec.spec = specCache.data;
   if (beatInfo && beatInfo.beats) spec.beats = beatInfo.beats.filter(b => b >= spec.start - 1 && b <= spec.end + 1);
@@ -144,10 +150,17 @@ function engineHTML(spec, base) {
   return ENGINE.replace('<head>', `<head>${base ? `<base href="${base}">` : ''}<script>window.onerror=(m)=>{window.__err=String(m)}<\/script><link rel="stylesheet" href="fonts.css">`).replace('/*SPEC*/', 'window.SPEC=' + JSON.stringify(spec) + ';');
 }
 
+// фактический отрезок ролика с учётом интро и аутро
+function effRange() {
+  const st = proj.style; let a = +st.start || 0, b = +st.end || proj.duration || 0;
+  if (proj.words.length && st.intro && st.intro.on) a = Math.max(0, a - (+st.intro.dur || 2.5));
+  if (proj.words.length && st.outro && st.outro.on) { const lastE = proj.words[proj.words.length - 1].e; b = Math.min(proj.duration || 1e9, Math.min(b, lastE + .35) + (+st.outro.dur || 3)); }
+  return [a, b];
+}
 // ---------- спектр и биты ----------
 async function ensureSpectrum() {
   if (!audioData) return;
-  const st = proj.style, t0 = +st.start || 0, t1 = +st.end || proj.duration, key = t0 + ':' + t1;
+  const [t0, t1] = effRange(), key = t0 + ':' + t1;
   if (specCache && specCache.key === key) return;
   specCache = { key, data: Spectrum.spectrum(audioData.mono, audioData.sr, t0, t1, 30) };
 }
@@ -157,7 +170,7 @@ function analyzeBeats() {
 }
 
 // ---------- превью ----------
-function scheduleRebuild(ms = 350, noHistory) { clearTimeout(rebuildTimer); rebuildTimer = setTimeout(rebuildPreview, ms); if (!noHistory) touch(); Timeline.redraw(); }
+function scheduleRebuild(ms = 350, noHistory) { if (!noHistory) propagateRepeats(); clearTimeout(rebuildTimer); rebuildTimer = setTimeout(rebuildPreview, ms); if (!noHistory) touch(); Timeline.redraw(); }
 async function rebuildPreview() {
   if (!proj.words.length) { $('#preview').srcdoc = '<body style="margin:0;background:#111;color:#666;font:600 18px Inter;display:flex;align-items:center;justify-content:center;height:100vh">Нет текста</body>'; return; }
   await ensureSpectrum();
@@ -172,10 +185,10 @@ function fitStage() {
 }
 window.addEventListener('resize', fitStage);
 const curT = () => audio.src ? audio.currentTime : (window.__t ?? (+proj.style.start || 0));
-function seek(t) { if (!audio.src) window.__t = t; const cw = $('#preview').contentWindow; if (frameReady && cw && cw.seek) try { cw.seek(t); } catch (e) {} updateTransport(t); }
+function seek(t) { if (!audio.src) window.__t = t; const cw = $('#preview').contentWindow; if (frameReady && cw && cw.seek) try { cw.__playing = playing; cw.seek(t); } catch (e) {} updateTransport(t); }
 function seekTo(t) { const s = +proj.style.start || 0, e = +proj.style.end || proj.duration || 0; t = Math.max(0, Math.min(Math.max(e, proj.duration || 0), t)); if (audio.src) audio.currentTime = t; seek(t); }
 function updateTransport(t) {
-  const s = +proj.style.start || 0, e = +proj.style.end || proj.duration || 1;
+  const [s, e0] = effRange(), e = e0 || 1;
   $('#tCur').textContent = fmtT(t); $('#tEnd').textContent = fmtT(e);
   if (!$('#scrub')._drag) $('#scrub').value = Math.round(1000 * (t - s) / Math.max(.01, e - s));
   const k = sceneAt(t);
@@ -183,18 +196,18 @@ function updateTransport(t) {
 }
 function sceneAt(t) { return proj.scenes.findIndex((sc, i) => { const n = proj.scenes[i + 1]; return t < (n && proj.words[n.a] ? proj.words[n.a].t - .1 : 1e9); }); }
 function loop() {
-  if (playing) { const e = +proj.style.end || proj.duration; if (audio.currentTime >= e) { audio.pause(); playing = false; $('#bPlay').textContent = '▶'; audio.currentTime = +proj.style.start || 0; } seek(audio.currentTime); }
+  if (playing) { const [s, e] = effRange(); if (audio.currentTime >= e) { audio.pause(); playing = false; $('#bPlay').textContent = '▶'; audio.currentTime = s; } seek(audio.currentTime); }
   requestAnimationFrame(loop);
 }
 function togglePlay() {
   if (!audio.src) return toast('Сначала выберите трек');
   if (playing) { audio.pause(); playing = false; $('#bPlay').textContent = '▶'; return; }
-  const s = +proj.style.start || 0, e = +proj.style.end || proj.duration;
+  const [s, e] = effRange();
   if (audio.currentTime < s || audio.currentTime >= e - .05) audio.currentTime = s;
   audio.play(); playing = true; $('#bPlay').textContent = '❚❚';
 }
 $('#bPlay').onclick = togglePlay;
-$('#scrub').addEventListener('input', () => { const s = +proj.style.start || 0, e = +proj.style.end || proj.duration; seekTo(s + (e - s) * $('#scrub').value / 1000); });
+$('#scrub').addEventListener('input', () => { const [s, e] = effRange(); seekTo(s + (e - s) * $('#scrub').value / 1000); });
 $('#scrub').addEventListener('pointerdown', () => $('#scrub')._drag = true); $('#scrub').addEventListener('pointerup', () => $('#scrub')._drag = false);
 
 // ---------- безопасные зоны ----------
@@ -228,28 +241,74 @@ $('#bAlign').onclick = async () => {
   if (!proj.lyrics.trim()) return toast('Вставьте текст песни');
   const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; $('#bAlign').disabled = true;
   try {
-    const r = await api.align({ audioPath: proj.audioPath, lyrics: proj.lyrics, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo },
+    proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked;
+    const r = await api.align({ audioPath: proj.audioPath, lyrics: proj.lyrics, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals },
       p => { st.textContent = p; });
-    proj.words = r.words; proj.duration = r.duration || proj.duration;
+    proj.words = r.words; markAdlibs(proj.words); proj.duration = r.duration || proj.duration;
     autoRange(); autoScenes();
     st.className = 'status ok'; st.textContent = `Готово: ${r.words.length} слов, ${proj.scenes.length} сцен.` + (r.median < 0.15 ? '\nВокал плохо слышно — проверьте тайминги на таймлайне.' : '');
     fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50);
   } catch (e) { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'синхронизация: ' + (e.message || e)); }
   $('#bAlign').disabled = false;
 };
+function markAdlibs(words) { let inside = false; words.forEach(w => { const s = w.w.trim(); if (s.startsWith('(')) inside = true; w.adlib = inside || undefined; if (!w.adlib) delete w.adlib; if (/\)[,.!?…]*$/.test(s)) inside = false; }); }
 function autoRange() { if (!proj.words.length) return; const w0 = proj.words[0], w1 = proj.words[proj.words.length - 1]; proj.style.start = Math.max(0, +(w0.t - 0.3).toFixed(2)); proj.style.end = +Math.min(proj.duration || 1e9, w1.e + 0.45).toFixed(2); specCache = null; }
 const blankScene = (a, b, tpl) => ({ a, b, tpl, f: {}, bump: '', stamp: '', stampAt: '', fx: '', fxAt: '', scale: '' });
+// подбор шаблона по словам строки: [регулярка, шаблоны по приоритету]
+const KEYMAP = [
+  [/звон|позвон|трубк|набер|абонент/, ['callfull', 'call']],
+  [/пиш(у|ет|и|ешь)|напиш|сообщ|смс|переписк|чат|в личк|ответ(ь|ила|ил)/, ['imsg-dialog', 'tg-her', 'chat']],
+  [/деньг|бабк|бабл|кэш|кеш|лаве|бабос|карт[аеуы]|руб(ль|лей)|доллар|баксы|зарплат|банк|счёт|счет/, ['bank', 'counter', 'spend']],
+  [/болит|болен|болею|бол(ь|и)|врач|доктор|таблет|сироп|горл|кашл|температур|справк|лечен/, ['doc', 'record']],
+  [/бомб|взрыв|дефуз|раунд|катк|калаш|каэс|контр|зайти на|плент/, ['cs-bomb', 'cs-score']],
+  [/урон|дамаг|хп\b|крит|убил|килл|ваншот|хедшот/, ['selfhit']],
+  [/дожд|ливен|снег|солнц|погод|холод|мороз|туман|жар[аы]\b/, ['weather', 'leanrain']],
+  [/тачк|машин|дорог|трасс|гоню|руль|педал|бмв|мерс|еду\b|ехал|колёс|колес|за рулём/, ['drive', 'map']],
+  [/трек|песн|музык|бит\b|битос|слушай|плейлист|альбом|куплет|припев|наушник/, ['lyrics', 'player']],
+  [/лайк|коммент|подпис(чик|ка)|хейт|блог|тикток|рилс|сторис|стори\b|пост\b|ленте|репост|просмотр/, ['vc-sheet', 'post', 'story', 'vc-list']],
+  [/сердц|пульс|давлен|дыш/, ['pulse']],
+  [/батаре|заряд|сел[аи]? |энерджайз|разрядил|процент/, ['alert']],
+  [/опрос|выбира|да или нет|или нет/, ['poll']],
+  [/сплю|проснул|будильн|утро|утром|ночью|ноч[ьи]\b|не сплю|время \d|часов/, ['notifs']],
+  [/рейтинг|оценк|звёзд|звезд|отзыв/, ['rating']],
+  [/надо|список|план\b|дел[ао]\b|сделать/, ['todo']],
+  [/уровень|риск|предел|на максимум/, ['slider']],
+  [/доставк|заказ|купил|пачк|магаз|корзин/, ['spend', 'purchase']],
+  [/достижен|ачивк|левел|лвл|прокач|апнул/, ['pcach', 'achievement']],
+  [/запис|диктофон|микрофон|фристайл|студи/, ['recorder']],
+  [/сервер|созвон|дискорд|войс|каток/, ['server']],
+  [/вкл(ючи|ючаю)|выкл|режим/, ['toggles', 'segmented']]
+];
+const normTxt = t => String(t).toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+const sceneSig = sc => normTxt(proj.words.slice(sc.a, sc.b).filter(w => !w.adlib).map(w => w.w).join(' '));
+function pickByWords(text, recent) {
+  const t = ' ' + normTxt(text) + ' ';
+  for (const [re, list] of KEYMAP) if (re.test(t)) { const c = list.find(x => TPL[x] && !recent.includes(x)); if (c) return c; }
+  return null;
+}
 function autoScenes() {
-  const per = proj.perScene || 2, lines = [], kin = $('#autoKin').checked;
+  const per = proj.perScene || 2, lines = [], kin = $('#autoKin').checked, smart = $('#autoSmart').checked;
   proj.words.forEach((w, i) => { const L = lines[lines.length - 1]; if (L && L.line === w.line) L.b = i + 1; else lines.push({ line: w.line, a: i, b: i + 1 }); });
-  proj.scenes = []; const used = {}; let kk = 0;
-  for (let i = 0, n = 0; i < lines.length; i += per, n++) {
-    const grp = lines.slice(i, i + per), k = grp.length, pool = AUTO_TPL[Math.min(3, k)];
-    let tpl = pool[(used[k] = (used[k] ?? -1) + 1) % pool.length];
-    if (kin && n % 4 === 3) tpl = KIN_AUTO[kk++ % KIN_AUTO.length];
-    proj.scenes.push(blankScene(grp[0].a, grp[k - 1].b, tpl));
+  lines.forEach(L => L.sig = normTxt(proj.words.slice(L.a, L.b).map(w => w.w).join(' ')));
+  // припев: строка, с которой раньше уже начиналась сцена, начинает новую сцену той же длины
+  const startLen = {}, firstSeen = {}; lines.forEach((L, i) => { if (firstSeen[L.sig] == null) firstSeen[L.sig] = i; });
+  proj.scenes = []; const used = {}, sigTpl = {}, recent = []; let kk = 0;
+  for (let i = 0, n = 0; i < lines.length; n++) {
+    let k = startLen[lines[i].sig] && firstSeen[lines[i].sig] < i ? startLen[lines[i].sig] : per;
+    for (let j = 1; j < k && i + j < lines.length; j++) { const L = lines[i + j]; if (startLen[L.sig] && firstSeen[L.sig] < i + j) { k = j; break; } }
+    k = Math.min(k, lines.length - i); const grp = lines.slice(i, i + k); if (!startLen[lines[i].sig]) startLen[lines[i].sig] = k;
+    const sc = blankScene(grp[0].a, grp[k - 1].b, null), sig = normTxt(grp.map(g => g.sig).join(' '));
+    let tpl = sigTpl[sig];
+    if (!tpl) {
+      const pool = AUTO_TPL[Math.min(3, k)];
+      tpl = smart ? pickByWords(grp.map(g => g.sig).join(' '), recent.slice(-3)) : null;
+      if (!tpl) { do { tpl = pool[(used[k] = (used[k] ?? -1) + 1) % pool.length]; } while (recent.slice(-2).includes(tpl) && pool.length > 3); }
+      if (kin && n % 4 === 3) tpl = KIN_AUTO[kk++ % KIN_AUTO.length];
+      sigTpl[sig] = tpl;
+    }
+    sc.tpl = tpl; recent.push(tpl); proj.scenes.push(sc); i += k;
   }
-  sel = 0;
+  sel = 0; msel = new Set([0]);
 }
 $('#bAutoScenes').onclick = () => { if (!proj.words.length) return toast('Сначала синхронизируйте слова'); if (!confirm('Пересобрать сцены? Текущие настройки сцен пропадут (можно вернуть через Ctrl+Z).')) return; autoScenes(); renderAll(); scheduleRebuild(50); };
 $$('#perScene button').forEach(b => b.onclick = () => { proj.perScene = +b.dataset.v; $$('#perScene button').forEach(x => x.classList.toggle('on', x === b)); });
@@ -272,23 +331,27 @@ function renderStrip() {
   const box = $('#sceneStrip'); box.innerHTML = '';
   proj.scenes.forEach((sc, i) => {
     if (!proj.words[sc.a]) return;
-    const d = document.createElement('div'); d.className = 'sc' + (i === sel ? ' on' : '');
+    const d = document.createElement('div'); d.className = 'sc' + (i === sel ? ' on' : '') + (msel.has(i) && msel.size > 1 ? ' msel' : '');
     d.innerHTML = `<img src="${thumb(sc.tpl)}" onerror="this.style.visibility='hidden'"><div><div class="n">${i + 1} · ${fmtT(proj.words[sc.a].t)}</div><div class="t">${esc(sceneText(sc))}</div></div>`;
-    d.onclick = () => selectScene(i, true);
+    d.onclick = e => {
+      if (e.ctrlKey || e.metaKey) { if (msel.has(i) && msel.size > 1) msel.delete(i); else msel.add(i); sel = i; renderStrip(); renderScene(); return; }
+      if (e.shiftKey) { const a = Math.min(sel, i), b = Math.max(sel, i); msel = new Set(); for (let k = a; k <= b; k++) msel.add(k); sel = i; renderStrip(); renderScene(); return; }
+      selectScene(i, true);
+    };
     box.append(d);
   });
   const on = box.children[sel]; if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   Timeline.redraw();
 }
 function selectScene(i, jump) {
-  if (i < 0 || i >= proj.scenes.length) return; sel = i;
+  if (i < 0 || i >= proj.scenes.length) return; sel = i; msel = new Set([i]);
   if (jump) { const sc = proj.scenes[i]; seekTo(Math.max(+proj.style.start || 0, proj.words[sc.a].t - .1 + .6)); }
   renderStrip(); renderScene();
 }
 function wordOptions(sc, val, none = 'нет') {
   return `<option value="">${none}</option>` + proj.words.slice(sc.a, sc.b).map((w, i) => `<option value="${sc.a + i}" ${String(val) === String(sc.a + i) ? 'selected' : ''}>${esc(w.w)}</option>`).join('');
 }
-const SEL_LABEL = { auto: 'как в шаблоне', none: 'не показывать', note: 'заметка', ticker: 'фиолетовая лента', transcript: 'расшифровка (тёмная)', status: 'статус (зелёный)', warn: 'предупреждение', search: 'поиск сверху', data: 'данные', decline: 'отклонить', approve: 'одобрить' };
+const SEL_LABEL = { circle: 'круг вокруг обложки', bars: 'полосы', wave: 'волна', auto: 'как в шаблоне', none: 'не показывать', note: 'заметка', ticker: 'фиолетовая лента', transcript: 'расшифровка (тёмная)', status: 'статус (зелёный)', warn: 'предупреждение', search: 'поиск сверху', data: 'данные', decline: 'отклонить', approve: 'одобрить' };
 function imgPicker(box, val, onPick, onClear, label = 'Выбрать картинку…') {
   const src = asset(val); box.className = 'imgPick';
   box.innerHTML = src ? `<img src="${src}"><button class="small">заменить</button><button class="small ghost">✕</button>` : `<button class="small">${label}</button>`;
@@ -322,6 +385,11 @@ function renderScene() {
     }
     box.append(d);
   });
+  const ts = targets(); $('#seMulti').hidden = ts.length < 2;
+  if (ts.length > 1) $('#seMulti').innerHTML = `Выделено сцен: <b>${ts.length}</b>. Шаблон из галереи и «вставить вид» применятся ко всем выделенным.`;
+  const reps = repeatsOf(sel); $('#seRepeats').hidden = !reps.length;
+  if (reps.length) { $('#seRepeats').innerHTML = `Эта строка повторяется в сценах <b>${reps.map(k => k + 1).join(', ')}</b> (припев).<label class="chk"><input type="checkbox" id="seLink" ${proj.linkRepeats === false ? '' : 'checked'}> менять повторы вместе с этой сценой</label>`;
+    $('#seLink').onchange = e => { proj.linkRepeats = e.target.checked; if (e.target.checked) scheduleRebuild(50); else touch(); }; }
   const card = !t.nocard; $('#seCardOnly').hidden = !card; $('#seScaleBox').hidden = !card;
   $('#seBump').innerHTML = wordOptions(sc, sc.bump); $('#seStamp').value = sc.stamp || ''; $('#seStampAt').innerHTML = wordOptions(sc, sc.stampAt, 'авто');
   $('#seFx').value = sc.fx || ''; $('#seFxAt').innerHTML = wordOptions(sc, sc.fxAt, 'авто');
@@ -344,6 +412,25 @@ function splitScene(atTime) {
   const nw = Object.assign(blankScene(m, sc.b, AUTO_TPL[1][(i + 3) % AUTO_TPL[1].length])); sc.b = m;
   proj.scenes.splice(i + 1, 0, nw); sel = i; renderAll(); scheduleRebuild();
 }
+function sceneLook(sc) {
+  const rel = v => v === '' || v == null ? '' : (+v - sc.a);
+  return JSON.parse(JSON.stringify({ tpl: sc.tpl, f: sc.f, scale: sc.scale, stamp: sc.stamp, fx: sc.fx, bump: rel(sc.bump), stampAt: rel(sc.stampAt), fxAt: rel(sc.fxAt) }));
+}
+function applyLook(sc, L) {
+  const abs = v => v === '' || v == null ? '' : (sc.a + +v < sc.b ? sc.a + +v : '');
+  Object.assign(sc, { tpl: L.tpl, f: JSON.parse(JSON.stringify(L.f || {})), scale: L.scale, stamp: L.stamp, fx: L.fx, bump: abs(L.bump), stampAt: abs(L.stampAt), fxAt: abs(L.fxAt) });
+}
+function targets() { return msel.size > 1 ? [...msel].sort((a, b) => a - b) : [sel]; }
+function copyLook() { const sc = proj.scenes[sel]; if (!sc) return; clip = sceneLook(sc); toast('Вид сцены скопирован — выделите сцены и нажмите Ctrl+V', 2600); }
+function pasteLook() { if (!clip) return toast('Сначала скопируйте вид сцены (Ctrl+C)'); const ts = targets(); ts.forEach(i => applyLook(proj.scenes[i], clip)); renderAll(); scheduleRebuild(50); toast(ts.length > 1 ? `Вставлено в ${ts.length} сцен` : 'Вставлено'); }
+$('#seCopy').onclick = copyLook; $('#sePaste').onclick = pasteLook;
+// ---- повторы (припев) ----
+function repeatsOf(i) { const sig = sceneSig(proj.scenes[i]); if (sig.split(' ').length < 2) return []; return proj.scenes.map((sc, k) => k).filter(k => k !== i && sceneSig(proj.scenes[k]) === sig); }
+function propagateRepeats() {
+  if (proj.linkRepeats === false || !proj.scenes[sel]) return;
+  const reps = repeatsOf(sel); if (!reps.length) return; const L = sceneLook(proj.scenes[sel]);
+  reps.forEach(k => applyLook(proj.scenes[k], L));
+}
 $('#seMergePrev').onclick = mergePrev; $('#seMergeNext').onclick = mergeNext;
 $('#seSplit').onclick = () => { const sc = proj.scenes[sel], t = curT(); splitScene(sc && t > proj.words[sc.a].t + .05 && t < proj.words[sc.b - 1].t ? t : null); };
 
@@ -352,13 +439,35 @@ let gCat = null;
 function openGallery() {
   if (!proj.scenes[sel]) return;
   gCat = gCat || 'Все';
-  $('#gCats').innerHTML = ['Все'].concat(TEMPLATE_CATS).map(c => `<button class="${c === gCat ? 'on' : ''}">${c}</button>`).join('');
+  $('#gCats').innerHTML = ['Все'].concat(Object.keys(USER_TPL).length ? ['Мои'] : []).concat(TEMPLATE_CATS).map(c => `<button class="${c === gCat ? 'on' : ''}">${c}</button>`).join('');
   $$('#gCats button').forEach(b => b.onclick = () => { gCat = b.textContent; openGallery(); });
   const list = TEMPLATES.filter(t => gCat === 'Все' || t.cat === gCat);
   $('#gGrid').innerHTML = list.map(t => `<div class="tp" data-id="${t.id}"><img src="${thumb(t.id)}" onerror="this.style.visibility='hidden'"><b>${esc(t.name)}</b><span>${t.lines === 1 ? '1 строка' : t.lines + ' строки'}${t.nocard ? ' · без карточки' : ''}</span></div>`).join('');
-  $$('#gGrid .tp').forEach(d => d.onclick = () => { const sc = proj.scenes[sel]; sc.tpl = d.dataset.id; sc.f = {}; sc.scale = ''; $('#gallery').hidden = true; renderAll(); scheduleRebuild(50); });
+  if (gCat === 'Мои' || (gCat === 'Все' && Object.keys(USER_TPL).length)) $('#gGrid').insertAdjacentHTML('afterbegin', Object.entries(USER_TPL).map(([k, u]) => `<div class="tp" data-u="${esc(k)}"><img src="${u.thumb || thumb(u.base)}" onerror="this.style.visibility='hidden'"><i class="del" title="Удалить">✕</i><b>${esc(k)}</b><span>мой · ${esc((TPL[u.base] || {}).name || u.base)}</span></div>`).join(''));
+  if (gCat === 'Мои') $$('#gGrid .tp:not([data-u])').forEach(x => x.remove());
+  $$('#gGrid .tp').forEach(d => d.onclick = e => {
+    if (d.dataset.u && e.target.classList.contains('del')) { if (!confirm(`Удалить шаблон «${d.dataset.u}»?`)) return; delete USER_TPL[d.dataset.u]; api.saveUserTemplates(USER_TPL); openGallery(); return; }
+    const ts = targets();
+    ts.forEach(i => { const sc = proj.scenes[i];
+      if (d.dataset.u) applyUserTpl(sc, USER_TPL[d.dataset.u]); else { sc.tpl = d.dataset.id; sc.f = {}; sc.scale = ''; } });
+    $('#gallery').hidden = true; renderAll(); scheduleRebuild(50); if (ts.length > 1) toast(`Шаблон применён к ${ts.length} сценам`);
+  });
   $('#gallery').hidden = false;
 }
+function applyUserTpl(sc, u) {
+  const f = JSON.parse(JSON.stringify(u.f || {}));
+  for (const k in f) if (typeof f[k] === 'string' && f[k].startsWith('data:')) { const id = uid(); proj.assets[id] = f[k]; f[k] = 'asset:' + id; }
+  applyLook(sc, Object.assign({}, u, { f, tpl: u.base }));
+}
+$('#seSaveTpl').onclick = () => { $('#seSaveTplBox').hidden = !$('#seSaveTplBox').hidden; $('#seTplNameIn').focus(); };
+$('#seSaveTplGo').onclick = async () => {
+  const name = $('#seTplNameIn').value.trim(); if (!name) return toast('Впишите название шаблона');
+  const sc = proj.scenes[sel], L = sceneLook(sc), f = {};
+  for (const k in L.f) f[k] = asset(L.f[k]);
+  const u = { base: L.tpl, f, scale: L.scale, stamp: L.stamp, fx: L.fx, bump: L.bump, stampAt: L.stampAt, fxAt: L.fxAt };
+  try { const r = $('#stage').getBoundingClientRect(); const th = await api.captureRect({ x: r.x, y: r.y + r.height * .15, width: r.width, height: r.height * .7 }); if (th) u.thumb = th; } catch (e) {}
+  USER_TPL[name] = u; await api.saveUserTemplates(USER_TPL); $('#seSaveTplBox').hidden = true; $('#seTplNameIn').value = ''; toast(`Шаблон «${name}» сохранён — он в галерее, раздел «Мои»`, 3000);
+};
 $('#seTpl').onclick = openGallery; $('#gClose').onclick = () => $('#gallery').hidden = true;
 
 // ---------- стиль ----------
@@ -384,8 +493,30 @@ function fillStyle() {
   $('#cOn').checked = !!c.on; $('#cBox').classList.toggle('off', !c.on); $('#cTheme').value = c.theme; $('#cBgType').value = c.bgType; $('#cBg1').value = c.bg1; $('#cBg2').value = c.bg2;
   $('#cFont').innerHTML = fontOptions(c.font); $('#cAccent').value = c.accent; $('#cTilt').value = c.tilt; $('#cTiltV').textContent = (+c.tilt).toFixed(1) + '°'; $('#cTrans').value = st.trans || '';
   [['grain', 2], ['vhs', 2], ['aberr', 2], ['shake', 2]].forEach(([k, d]) => { const id = 'fx' + k[0].toUpperCase() + k.slice(1); $('#' + id).value = fx[k] || 0; $('#' + id + 'V').textContent = +fx[k] ? (+fx[k]).toFixed(d) : 'выкл'; });
+  const bm = st.bgMedia;
+  const pickBg = async () => { const m = await pickMedia(); if (m) { st.bgMedia = Object.assign({ blur: 0, dim: 0.25, zoom: true }, bm || {}, m); fillStyle(); scheduleRebuild(50); } };
+  const bp = $('#bgPick'); bp.className = 'imgPick';
+  if (bm && (bm.asset || bm.path)) { bp.innerHTML = bm.type === 'video' ? `<span class="vchip">🎬 ${esc((bm.name || 'видео').slice(0, 26))}</span><button class="small">заменить</button><button class="small ghost">✕</button>` : `<img src="${asset('asset:' + bm.asset)}"><button class="small">заменить</button><button class="small ghost">✕</button>`;
+    const bs = bp.querySelectorAll('button'); bs[0].onclick = pickBg; bs[1].onclick = () => { st.bgMedia = null; fillStyle(); scheduleRebuild(50); }; }
+  else { bp.innerHTML = '<button class="small">Фото или видео…</button>'; bp.querySelector('button').onclick = pickBg; }
+  $('#bgOpts').hidden = !(bm && (bm.asset || bm.path)); if (bm) { $('#bgBlur').value = bm.blur || 0; $('#bgBlurV').textContent = (bm.blur || 0) + ' px'; $('#bgDim').value = bm.dim || 0; $('#bgDimV').textContent = Math.round((bm.dim || 0) * 100) + '%'; $('#bgZoom').checked = !!bm.zoom; $('#bgZoomBox').hidden = bm.type === 'video'; }
+  const io = st.intro, oo = st.outro; $('#inOn').checked = !!io.on; $('#inTitle').value = io.title || ''; $('#inTitle').placeholder = st.title || (proj.audioName || 'название трека').replace(/\.[^.]+$/, ''); $('#inDur').value = io.dur; $('#inLabel').value = io.label || '';
+  $('#outOn').checked = !!oo.on; $('#outText').value = oo.text || ''; $('#outDur').value = oo.dur; $('#outSub').value = oo.sub || ''; $('#adlibs').value = st.adlibs || 'chip';
   updateTransport(curT());
 }
+async function pickMedia() {
+  const f = await api.pickMedia(); if (!f) return null;
+  if (f.kind === 'video') return { type: 'video', path: f.path, name: f.name, asset: undefined };
+  const bmp = await createImageBitmap(new Blob([f.data])), k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  const id = uid(); proj.assets[id] = c.toDataURL('image/jpeg', 0.9); return { type: 'image', asset: id, name: f.name, path: undefined };
+}
+['bgBlur', 'bgDim'].forEach(id => $('#' + id).addEventListener('input', e => { const bm = proj.style.bgMedia; if (!bm) return; bm[id === 'bgBlur' ? 'blur' : 'dim'] = +e.target.value; $('#' + id + 'V').textContent = id === 'bgBlur' ? e.target.value + ' px' : Math.round(e.target.value * 100) + '%'; scheduleRebuild(250); }));
+$('#bgZoom').onchange = e => { if (proj.style.bgMedia) { proj.style.bgMedia.zoom = e.target.checked; scheduleRebuild(50); } };
+const bindIO = (sel, obj, key, conv = v => v, ev = 'input') => $(sel).addEventListener(ev, e => { proj.style[obj][key] = conv(e.target.type === 'checkbox' ? e.target.checked : e.target.value); specCache = null; scheduleRebuild(300); });
+bindIO('#inOn', 'intro', 'on', v => v, 'change'); bindIO('#inTitle', 'intro', 'title'); bindIO('#inDur', 'intro', 'dur', v => +v, 'change'); bindIO('#inLabel', 'intro', 'label');
+bindIO('#outOn', 'outro', 'on', v => v, 'change'); bindIO('#outText', 'outro', 'text'); bindIO('#outDur', 'outro', 'dur', v => +v, 'change'); bindIO('#outSub', 'outro', 'sub');
+$('#adlibs').onchange = e => { proj.style.adlibs = e.target.value; renderScene(); scheduleRebuild(50); };
 const bindStyle = (sel, key, conv = v => v, ev = 'input', rebuildSpec = false) => $(sel).addEventListener(ev, e => { proj.style[key] = conv(e.target.type === 'checkbox' ? e.target.checked : e.target.value); if (rebuildSpec) specCache = null; if (key === 'beat') $('#beatV').textContent = (+e.target.value).toFixed(3); scheduleRebuild(); if (rebuildSpec) Timeline.redraw(); });
 bindStyle('#vStart', 'start', v => +v, 'change', true); bindStyle('#vEnd', 'end', v => +v, 'change', true);
 bindStyle('#artist', 'artist'); bindStyle('#songTitle', 'title'); bindStyle('#wm', 'wm'); bindStyle('#wmOp', 'wmOp', v => +v);
@@ -458,10 +589,10 @@ $('#bUndo').onclick = () => histGo(-1); $('#bRedo').onclick = () => histGo(1);
 
 // ---------- проект, автосохранение, недавние ----------
 function updTitle() { $('#projName').textContent = (projPath ? projPath.split(/[\\/]/).pop() : 'новый проект') + (dirty ? ' •' : ''); }
-function renderAll() { renderStrip(); renderScene(); renderPresets(); fillStyle(); updTitle(); }
+function renderAll() { msel = new Set([...msel].filter(i => i < proj.scenes.length)); if (!msel.size || !msel.has(sel)) msel = new Set([sel]); renderStrip(); renderScene(); renderPresets(); fillStyle(); updTitle(); }
 function applyProject(p, path) {
   proj = merge(newProject(), p); proj.style = merge(newProject().style, p.style || {}); proj.assets = p.assets || {}; proj.fonts = p.fonts || [];
-  projPath = path || null; $('#lyrics').value = proj.lyrics; $('#alFrom').value = proj.alFrom; $('#alTo').value = proj.alTo; $('#audioName').textContent = proj.audioName || 'не выбран';
+  projPath = path || null; $('#alLang').value = proj.lang || 'ru'; $('#alVocals').checked = !!proj.vocals; $('#alVocHint').hidden = !proj.vocals; $('#lyrics').value = proj.lyrics; $('#alFrom').value = proj.alFrom; $('#alTo').value = proj.alTo; $('#audioName').textContent = proj.audioName || 'не выбран';
   sel = 0; specCache = null; beatInfo = null; $('#bpmLabel').textContent = ''; registerFonts();
 }
 async function afterLoad() {
@@ -499,6 +630,7 @@ window.__beforeClose = async () => {
   else { try { await api.clearAutosave(); } catch (e) {} }
   return true;
 };
+$('#alVocals').onchange = e => { $('#alVocHint').hidden = !e.target.checked; };
 $('#lyrics').addEventListener('input', () => { proj.lyrics = $('#lyrics').value; touch(); });
 
 // ---------- баннер ----------
@@ -537,12 +669,23 @@ $$('#xPlat button').forEach(b => b.addEventListener('click', () => {
 }));
 function exportOpts() {
   const draft = $('#xDraft').checked, cont = segOn('#xCont').dataset.v;
-  return { draft, container: cont, res: draft ? 360 : +segOn('#xRes').dataset.v, fps: draft ? 15 : +segOn('#xFps').dataset.v };
+  return { draft, container: cont, res: draft ? 360 : cont === 'gif' ? Math.min(+segOn('#xRes').dataset.v, 540) : +segOn('#xRes').dataset.v, fps: draft ? 15 : cont === 'gif' ? 15 : +segOn('#xFps').dataset.v };
+}
+const EXT_LABEL = { mp4: 'MP4', mov: 'MOV', webm: 'WebM', gif: 'GIF' };
+// собрать задание экспорта для формата (можно отличный от текущего)
+function makeJob(o, format) {
+  const keep = proj.style.format; if (format) proj.style.format = format;
+  try {
+    const alpha = o.container === 'mov' || o.container === 'webm', spec = buildSpec(true, { transparent: alpha }), [W, H] = FMT[proj.style.format];
+    return { html: engineHTML(spec, 'app://app/'), W, H, width: W >= H ? Math.round(o.res * W / H / 2) * 2 : o.res, start: +spec.start, end: +spec.end, fade: +spec.fade, audioPath: proj.audioPath,
+      fps: o.fps, draft: o.draft, container: o.container, name: (proj.audioName || 'video').replace(/\.[^.]+$/, '') + (o.draft ? '-черновик' : '') + (format ? '-' + format.replace(':', 'x') : '') };
+  } finally { proj.style.format = keep; }
 }
 function exportInfo() {
-  const o = exportOpts(), d = (+proj.style.end || proj.duration) - (+proj.style.start || 0), [W, H] = FMT[proj.style.format];
+  const o = exportOpts(), [ra, rb] = effRange(), d = rb - ra, [W, H] = FMT[proj.style.format];
   const w = W >= H ? Math.round(o.res * W / H / 2) * 2 : o.res, h = Math.round(w * H / W / 2) * 2, plat = segOn('#xPlat').dataset.v;
-  $('#xAlphaHint').hidden = o.container === 'mp4';
+  $('#xAlphaHint').hidden = o.container === 'mp4' || o.container === 'gif';
+  if (o.container === 'gif') { $('#xInfo').innerHTML = `GIF без звука · до ${w}×${h} · 15 кадров/с · ${d.toFixed(1)} с. Для Telegram и превью лучше держать ролик короче 15 секунд.`; return; }
   $('#xInfo').innerHTML = `Длина ${d.toFixed(1)} с · ${proj.scenes.length} сцен · ${w}×${h} · ${o.fps} кадров/с · ${Math.round(d * o.fps)} кадров` + (plat ? `<br>${SAFE[plat].name}: вертикальное 1080×1920. Включены зоны интерфейса на превью — держите текст вне красных областей.` : '') + (o.res >= 2160 && !o.draft ? '<br>4K рендерится в несколько раз дольше 1080p.' : '');
 }
 $('#bExport').onclick = () => {
@@ -553,18 +696,56 @@ $('#xClose').onclick = () => { if (!exporting) $('#exportModal').hidden = true; 
 $('#xCancel').onclick = () => api.cancelExport();
 $('#xShow').onclick = () => lastExportPath && api.showFile(lastExportPath);
 $('#xGo').onclick = async () => {
-  await ensureSpectrum(); const o = exportOpts(), alpha = o.container !== 'mp4';
-  const spec = buildSpec(true, { transparent: alpha }), [W, H] = FMT[proj.style.format];
+  await ensureSpectrum(); const o = exportOpts(), job = makeJob(o);
   exporting = true; $('#xGo').disabled = true; $('#xCancel').hidden = false; $('#xShow').hidden = true; const st = $('#xStatus'); st.className = 'status';
   try {
-    const r = await api.exportVideo({ html: engineHTML(spec, 'app://app/'), W, H, width: W >= H ? Math.round(o.res * W / H / 2) * 2 : o.res, start: +spec.start, end: +spec.end, fade: +spec.fade, audioPath: proj.audioPath,
-      fps: o.fps, draft: o.draft, container: o.container, name: (proj.audioName || 'video').replace(/\.[^.]+$/, '') + (o.draft ? '-черновик' : '') },
-      p => { $('#xBar').style.width = Math.round(p.frac * 100) + '%'; st.textContent = p.text; });
-    if (r && r.ok) { st.className = 'status ok'; st.textContent = 'Готово: ' + r.path; $('#xBar').style.width = '100%'; lastExportPath = r.path; $('#xShow').hidden = false; }
+    const r = await api.exportVideo(job, p => { $('#xBar').style.width = Math.round(p.frac * 100) + '%'; st.textContent = p.text; });
+    if (r && r.ok) { st.className = 'status ok'; st.textContent = `Готово за ${Math.round(r.seconds || 0)} с: ` + r.path; $('#xBar').style.width = '100%'; lastExportPath = r.path; $('#xShow').hidden = false; }
     else st.textContent = r && r.cancelled ? 'Отменено' : 'Не сохранено';
   } catch (e) { st.className = 'status err'; st.innerHTML = 'Ошибка: ' + esc(e.message || e) + ' <button class="small" id="xRep">Скопировать отчёт</button>'; $('#xRep').onclick = copyReport; }
   exporting = false; $('#xGo').disabled = false; $('#xCancel').hidden = true;
 };
+
+// ---------- очередь экспорта ----------
+let queue = [];
+function renderQueue() {
+  $('#xQn').textContent = queue.length ? `(${queue.length})` : '';
+  $('#xQList').innerHTML = queue.map((q, i) => `<div class="q ${q.state || ''}"><span>${i + 1}. ${q.format} · ${q.o.draft ? 'черновик' : q.o.res + 'p'} · ${q.o.fps} к/с · ${EXT_LABEL[q.o.container]}${q.msg ? ' — ' + esc(q.msg) : ''}</span><button class="small ghost" data-i="${i}">✕</button></div>`).join('');
+  $$('#xQList button').forEach(b => b.onclick = () => { if (exporting) return; queue.splice(+b.dataset.i, 1); renderQueue(); });
+}
+$('#xQAdd').onclick = () => { queue.push({ o: exportOpts(), format: proj.style.format }); renderQueue(); };
+$('#xQ3').onclick = () => { const o = exportOpts(); ['9:16', '1:1', '16:9'].forEach(f => queue.push({ o: Object.assign({}, o), format: f })); renderQueue(); };
+$('#xQGo').onclick = async () => {
+  if (!queue.length) return toast('Очередь пуста — добавьте версии');
+  const dir = await api.pickFolder(); if (!dir) return;
+  await ensureSpectrum(); exporting = true; $('#xGo').disabled = true; $('#xQGo').disabled = true; $('#xCancel').hidden = false; const st = $('#xStatus'); st.className = 'status';
+  const sep = dir.includes('\\') ? '\\' : '/'; let ok = 0;
+  for (const q of queue) {
+    if (q.state === 'done') continue; q.state = 'run'; q.msg = ''; renderQueue();
+    try {
+      const job = makeJob(q.o, q.format); job.outPath = dir + sep + job.name + '.' + q.o.container;
+      const r = await api.exportVideo(job, p => { $('#xBar').style.width = Math.round(p.frac * 100) + '%'; st.textContent = `${q.format}: ${p.text}`; });
+      if (r && r.ok) { q.state = 'done'; q.msg = 'готово'; ok++; lastExportPath = r.path; } else { q.state = ''; q.msg = r && r.cancelled ? 'отменено' : 'не сохранено'; renderQueue(); break; }
+    } catch (e) { q.state = 'err'; q.msg = e.message || String(e); api.log('error', 'очередь: ' + q.msg); }
+    renderQueue();
+  }
+  st.className = 'status ok'; st.textContent = `Очередь: готово ${ok} из ${queue.length}`; $('#xShow').hidden = !lastExportPath;
+  exporting = false; $('#xGo').disabled = false; $('#xQGo').disabled = false; $('#xCancel').hidden = true;
+};
+// ---------- кадр и обложка ----------
+async function saveFrame(cover) {
+  if (!proj.words.length) return toast('Сначала синхронизируйте слова');
+  await ensureSpectrum(); const [W, H] = FMT[proj.style.format], width = W >= H ? 1920 : 1080; let spec, t;
+  if (cover) {
+    spec = buildSpec(true); const title = (proj.style.intro.title || proj.style.title || (proj.audioName || 'трек').replace(/\.[^.]+$/, '')).trim();
+    spec.words = [{ w: '·', t: 50, e: 50.2, line: 0 }]; spec.scenes = [{ words: [0, 1], caption: false }]; spec.start = 0; spec.end = 60; delete spec.player; delete spec.outro; delete spec.beats; delete spec.spec;
+    spec.intro = { t0: 0, title, artist: proj.style.artist, label: '', bar: false }; t = 2.2;
+  } else { spec = buildSpec(true); t = curT(); }
+  try { const r = await api.exportFrame({ html: engineHTML(spec, 'app://app/'), W, H, width, t, name: (proj.audioName || 'кадр').replace(/\.[^.]+$/, '') + (cover ? '-обложка' : '-кадр'), title: cover ? 'Сохранить обложку' : 'Сохранить кадр' });
+    if (r && r.ok) { lastExportPath = r.path; toast('Сохранено: ' + r.path.split(/[\\/]/).pop(), 3000); } }
+  catch (e) { toastErr('Не удалось сохранить картинку: ' + (e.message || e)); }
+}
+$('#xFrame').onclick = () => saveFrame(false); $('#xCover').onclick = () => saveFrame(true);
 
 // ---------- горячие клавиши ----------
 document.addEventListener('keydown', e => {
@@ -577,6 +758,9 @@ document.addEventListener('keydown', e => {
   if (inField) return;
   if (mod && code === 'KeyZ') { e.preventDefault(); histGo(e.shiftKey ? 1 : -1); return; }
   if (mod && code === 'KeyY') { e.preventDefault(); histGo(1); return; }
+  if (mod && code === 'KeyC') { e.preventDefault(); copyLook(); return; }
+  if (mod && code === 'KeyV') { e.preventDefault(); pasteLook(); return; }
+  if (mod && code === 'KeyA') { e.preventDefault(); msel = new Set(proj.scenes.map((x, i) => i)); renderStrip(); renderScene(); return; }
   if (mod) return;
   if (code === 'Space') { e.preventDefault(); togglePlay(); }
   else if (code === 'ArrowLeft' || code === 'ArrowRight') { e.preventDefault(); seekTo(curT() + (code === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 5 : 1)); }
@@ -592,7 +776,7 @@ document.addEventListener('keydown', e => {
 // ---------- таймлайн ----------
 Timeline.init($('#timeline'), {
   proj: () => proj, env: () => beatInfo, beats: () => beatInfo, time: () => curT(), seek: t => seekTo(t),
-  range: () => [+proj.style.start || 0, +proj.style.end || proj.duration || 10],
+  range: () => { const [a, b] = effRange(); return [a, b || 10]; },
   changed: (kind, live) => { if (kind === 'scenes') { renderStrip(); renderScene(); scheduleRebuild(250); } else if (kind === 'scenes-done') { scheduleRebuild(60); } else scheduleRebuild(live ? 400 : 120); },
   select: i => { sel = i; renderStrip(); renderScene(); }, selected: () => sel, playing: () => playing, snap: () => $('#snapBeats').checked
 });
@@ -603,6 +787,7 @@ $('#tlFit').onclick = () => Timeline.fit();
   ENGINE = await (await fetch('engine.html')).text();
   PRESETS = await (await fetch('presets.json')).json();
   try { USER_PRESETS = (await api.loadUserPresets()) || {}; } catch (e) { USER_PRESETS = {}; }
+  try { USER_TPL = (await api.loadUserTemplates()) || {}; } catch (e) { USER_TPL = {}; }
   try { const v = await api.version(); $('#verLabel').textContent = 'Версия ' + v.version + (v.portable ? ' · portable' : ''); } catch (e) {}
   renderAll(); histReset(); dirty = false; updTitle(); rebuildPreview(); loop();
   window.__ls = { get proj() { return proj; }, set proj(v) { proj = v; }, loadAudio, renderAll, rebuildPreview, buildSpec, engineHTML, autoScenes, autoRange, seek, seekTo, ensureSpectrum, analyzeBeats, get beatInfo() { return beatInfo; }, histGo, applyProject, afterLoad, currentPreset, splitScene, touch, scheduleRebuild };

@@ -7,6 +7,8 @@ if (!window.api) {
     pickAudio: () => pick('audio/*'),
     pickImage: () => pick('image/*'),
     pickFont: () => pick('.ttf,.otf,.woff,.woff2'),
+    async pickMedia() { const f = await pick('image/*,video/*'); if (!f) return null; const vid = /\.(mp4|mov|webm|m4v|mkv)$/i.test(f.name); if (vid) { const u = URL.createObjectURL(new Blob([f.data], { type: 'video/mp4' })); return { kind: 'video', path: u, name: f.name }; } return { kind: 'image', path: f.name, name: f.name, data: f.data }; },
+    mediaUrl: p => p,
     async readFile(p) { if (files[p]) return files[p]; const r = await fetch('/__file?path=' + encodeURIComponent(p)); if (!r.ok) throw new Error('нет файла'); return await r.arrayBuffer(); },
     async align(args, onProgress) {
       onProgress && onProgress('Синхронизация (dev-сервер)…');
@@ -20,10 +22,14 @@ if (!window.api) {
     async clearAutosave() { localStorage.removeItem('ls-autosave'); },
     async loadUserPresets() { try { return JSON.parse(ls('ls-presets') || '{}'); } catch (e) { return {}; } },
     async saveUserPresets(p) { ls('ls-presets', JSON.stringify(p)); },
+    async loadUserTemplates() { try { return JSON.parse(ls('ls-utpl') || '{}'); } catch (e) { return {}; } },
+    async saveUserTemplates(p) { ls('ls-utpl', JSON.stringify(p)); },
     async exportPreset(json, name) { window.__lastPreset = json; return name + '.lspreset'; },
     async importPreset() { return window.__importPreset ? [window.__importPreset] : null; },
     async exportVideo(job, onProgress) { window.__lastJob = job; return { ok: false }; },
     cancelExport() {},
+    async exportFrame(job) { window.__lastFrame = job; return { ok: false }; },
+    async pickFolder() { return '/tmp/out'; },
     async showFile() {},
     async captureRect() { return null; },
     async log(level, msg) { (window.__log = window.__log || []).push(level + ' ' + msg); },

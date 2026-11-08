@@ -1,7 +1,7 @@
 {
   "name": "lyric-studio",
   "productName": "Lyric Studio",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Редактор lyric-роликов в стиле iOS-интерфейсов",
   "main": "main.js",
   "author": "melhor",
@@ -22,7 +22,7 @@
     "appId": "com.melhor.lyricstudio",
     "productName": "Lyric Studio",
     "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "preload.js", "align.js", "app/**/*"],
+    "files": ["main.js", "preload.js", "align.js", "separate.js", "app/**/*"],
     "asarUnpack": ["node_modules/ffmpeg-static/**", "node_modules/onnxruntime-node/**"],
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }], "icon": "build/icon.png" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "artifactName": "LyricStudio-Setup-${version}.exe" },

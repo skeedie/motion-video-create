@@ -235,6 +235,10 @@
       F('before', 'Строка перед (уже спета)', ''), F('after', 'Строка после (будет)', '')],
     make: (f, c) => ({ widget: { type: 'lyrics', title: f.title, artist: f.artist, bg: f.bg, emoji: f.emoji, img: f.img || undefined, before: [f.before], after: [f.after], scale: 1.25 } }) });
 
+  add({ id: 'viz', name: 'Визуализатор звука + строка', cat: 'Музыка', lines: 1, nocard: true,
+    fields: [F('mode', 'Вид', 'circle', 'select', ['circle', 'bars', 'wave']), F('color', 'Цвет', '#9B6BFF', 'color'), F('emoji', 'В центре круга', '🎧', 'emoji'), F('img', 'Обложка в центре', '', 'image'), F('line', 'Показывать строку', true, 'bool')],
+    make: (f, c) => ({ widget: { type: 'viz', mode: f.mode, color: f.color, emoji: f.emoji, img: f.img || undefined, line: !!f.line, text: c.all, scale: 1 } }) });
+
   // ---------- Игры ----------
   add({ id: 'pcach', name: 'Ачивка на ПК (всплывашка)', cat: 'Игры', lines: 1,
     fields: [F('label', 'Надпись', 'Достижение разблокировано!'), F('desc', 'Описание', 'Редкое: есть у 0,4% игроков'), F('emoji', 'Значок', '🏆', 'emoji'), F('img', 'Значок-картинка', '', 'image'),
