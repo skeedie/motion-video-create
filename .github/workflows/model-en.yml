@@ -16,7 +16,7 @@ jobs:
       - name: Зависимости
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
-          pip install transformers==4.44.2 onnx==1.16.2 onnxruntime==1.19.2 datasets==2.21.0 soundfile librosa numpy==1.26.4
+          pip install transformers==4.44.2 onnx==1.16.2 onnxruntime==1.19.2 datasets==2.21.0 pyarrow==14.0.2 soundfile librosa numpy==1.26.4
       - name: Экспорт wav2vec2-base-960h (Apache-2.0) в ONNX int8
         run: |
           cat > export.py <<'EOF'

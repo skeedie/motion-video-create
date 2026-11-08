@@ -2,6 +2,7 @@ name: Сборка .exe
 on:
   push:
     branches: [main]
+    paths-ignore: ['.github/workflows/model*.yml', 'dev/**', 'README.md']
   workflow_dispatch:
 permissions:
   contents: write
