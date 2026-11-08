@@ -5,14 +5,32 @@ const withProgress = (ch, fn) => async (arg, onProgress) => {
   ipcRenderer.on(ch, h);
   try { return await fn(arg); } finally { ipcRenderer.removeListener(ch, h); }
 };
+const inv = (ch, ...a) => ipcRenderer.invoke(ch, ...a);
 contextBridge.exposeInMainWorld('api', {
-  pickAudio: () => ipcRenderer.invoke('pickAudio'),
-  readFile: p => ipcRenderer.invoke('readFile', p),
-  align: withProgress('progress:align', a => ipcRenderer.invoke('align', a)),
-  saveProject: (json, name) => ipcRenderer.invoke('saveProject', json, name),
-  openProject: () => ipcRenderer.invoke('openProject'),
-  loadUserPresets: () => ipcRenderer.invoke('loadUserPresets'),
-  saveUserPresets: p => ipcRenderer.invoke('saveUserPresets', p),
-  exportVideo: withProgress('progress:export', j => ipcRenderer.invoke('exportVideo', j)),
-  cancelExport: () => ipcRenderer.invoke('cancelExport')
+  pickAudio: () => inv('pickAudio'),
+  pickImage: () => inv('pickImage'),
+  pickFont: () => inv('pickFont'),
+  readFile: p => inv('readFile', p),
+  align: withProgress('progress:align', a => inv('align', a)),
+  saveProject: (json, name, existing) => inv('saveProject', json, name, existing),
+  openProject: p => inv('openProject', p),
+  recent: () => inv('recent'),
+  autosave: json => inv('autosave', json),
+  loadAutosave: () => inv('loadAutosave'),
+  clearAutosave: () => inv('clearAutosave'),
+  loadUserPresets: () => inv('loadUserPresets'),
+  saveUserPresets: p => inv('saveUserPresets', p),
+  exportPreset: (json, name) => inv('exportPreset', json, name),
+  importPreset: () => inv('importPreset'),
+  exportVideo: withProgress('progress:export', j => inv('exportVideo', j)),
+  cancelExport: () => inv('cancelExport'),
+  showFile: p => inv('showFile', p),
+  captureRect: r => inv('captureRect', r),
+  log: (level, msg) => inv('log', level, msg),
+  copyReport: extra => inv('copyReport', extra),
+  openLogFolder: () => inv('openLogFolder'),
+  version: () => inv('version'),
+  checkUpdate: () => inv('checkUpdate'),
+  installUpdate: withProgress('progress:update', info => inv('installUpdate', info)),
+  openExternal: url => inv('openExternal', url)
 });

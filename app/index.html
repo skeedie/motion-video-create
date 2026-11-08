@@ -9,12 +9,25 @@
 <body>
 <header id="top">
   <div class="logo"><span class="dot"></span>Lyric Studio</div>
+  <div class="hgroup">
+    <button id="bUndo" class="ghost icon" title="Отменить (Ctrl+Z)" disabled>↶</button>
+    <button id="bRedo" class="ghost icon" title="Повторить (Ctrl+Y)" disabled>↷</button>
+  </div>
+  <span id="projName" class="muted small ell"></span>
   <div class="grow"></div>
   <button id="bNew" class="ghost">Новый</button>
-  <button id="bOpen" class="ghost">Открыть</button>
-  <button id="bSave" class="ghost">Сохранить</button>
-  <button id="bExport" class="primary">Экспорт в MP4</button>
+  <div class="dd"><button id="bOpen" class="ghost">Открыть ▾</button><div id="openMenu" class="menu" hidden></div></div>
+  <button id="bSave" class="ghost" title="Ctrl+S">Сохранить</button>
+  <div class="dd"><button id="bHelp" class="ghost icon" title="Помощь">?</button><div id="helpMenu" class="menu right" hidden>
+    <button data-act="keys">Горячие клавиши</button>
+    <button data-act="update">Проверить обновления</button>
+    <button data-act="report">Скопировать отчёт об ошибке</button>
+    <button data-act="logs">Открыть папку с журналом</button>
+    <div class="mver muted small" id="verLabel"></div>
+  </div></div>
+  <button id="bExport" class="primary" title="Ctrl+E">Экспорт видео</button>
 </header>
+<div id="banner" hidden><span id="bannerText"></span><div class="grow"></div><span id="bannerBtns"></span></div>
 
 <main>
   <!-- ЛЕВАЯ ПАНЕЛЬ: трек, текст, слова -->
@@ -32,29 +45,40 @@
       <div id="alignStatus" class="status"></div>
       <label class="lbl">Строк в сцене (для авторазбивки)</label>
       <div class="row seg" id="perScene"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="3">3</button></div>
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="autoKin"> добавлять сцены-типографику</label>
       <button id="bAutoScenes" class="wide">Разбить на сцены заново</button>
     </section>
     <section data-pane="words" hidden>
-      <div class="hint">Клик по слову — перейти к нему. Сдвигайте время кнопками ±, если слово появляется не в такт.</div>
+      <div class="hint">Клик по слову — перейти к нему. Сдвигайте время кнопками ± или перетаскивайте слова на таймлайне под превью.</div>
       <div id="wordList"></div>
     </section>
   </aside>
 
-  <!-- ЦЕНТР: превью -->
+  <!-- ЦЕНТР: превью и таймлайн -->
   <section id="center">
-    <div id="stageWrap"><div id="stage"><iframe id="preview" title="preview"></iframe></div></div>
+    <div id="stageWrap"><div id="stage"><iframe id="preview" title="preview"></iframe><div id="safe" hidden></div></div></div>
     <div id="transport">
-      <button id="bPlay" class="round">▶</button>
+      <button id="bPlay" class="round" title="Пробел">▶</button>
       <span id="tCur" class="mono">0:00.0</span>
       <input id="scrub" type="range" min="0" max="1000" value="0">
       <span id="tEnd" class="mono">0:00.0</span>
+      <select id="safeSel" title="Безопасные зоны площадки"><option value="">зоны: нет</option><option value="reels">зоны Reels</option><option value="tiktok">зоны TikTok</option><option value="shorts">зоны Shorts</option></select>
     </div>
+    <div id="tlBar">
+      <span class="muted small">Таймлайн</span>
+      <label class="chk small" title="Слова прилипают к битам при перетаскивании (Alt — временно выключить)"><input type="checkbox" id="snapBeats" checked> магнит к битам</label>
+      <span id="bpmLabel" class="muted small"></span>
+      <div class="grow"></div>
+      <span class="muted small">Ctrl+колесо — масштаб · Shift+перетаскивание — сдвинуть строку</span>
+      <button id="tlFit" class="ghost small">весь ролик</button>
+    </div>
+    <div id="tlWrap"><canvas id="timeline"></canvas></div>
     <div id="sceneStrip"></div>
   </section>
 
   <!-- ПРАВАЯ ПАНЕЛЬ: стиль и сцены -->
   <aside id="right" class="panel">
-    <div class="tabs"><button data-tab="scene" class="on">Сцена</button><button data-tab="style">Стиль</button></div>
+    <div class="tabs"><button data-tab="scene" class="on">Сцена</button><button data-tab="style">Стиль</button><button data-tab="fx">Эффекты</button></div>
     <section data-pane="scene">
       <div id="sceneEmpty" class="muted pad">Добавьте трек и текст, затем нажмите «Синхронизировать слова» — сцены создадутся сами.</div>
       <div id="sceneEditor" hidden>
@@ -63,32 +87,53 @@
         </div>
         <div class="row tight">
           <button id="seMergePrev" title="Объединить с предыдущей">⇤ объединить</button>
-          <button id="seSplit" title="Разделить пополам">разделить</button>
-          <button id="seMergeNext" title="Объединить со следующей">объединить ⇥</button>
+          <button id="seSplit" title="Разделить на месте курсора (S)">разделить</button>
+          <button id="seMergeNext" title="Объединить со следующей (M)">объединить ⇥</button>
         </div>
         <label class="lbl">Шаблон</label>
         <button id="seTpl" class="tplBtn"><img id="seTplImg" alt=""><span id="seTplName"></span><span class="muted">сменить…</span></button>
         <div id="seFields"></div>
-        <details class="more" open>
+        <details class="more" open id="seAccents">
           <summary>Акценты</summary>
+          <div id="seCardOnly">
           <label class="lbl">Подпрыгнуть на слове</label><select id="seBump"></select>
           <label class="lbl">Штамп (текст, пусто — без штампа)</label><div class="row"><input id="seStamp" placeholder="Понятно ✓"><select id="seStampAt"></select></div>
+          </div>
           <label class="lbl">Частицы-эмодзи (пусто — без)</label><div class="row"><input id="seFx" placeholder="💨" class="emo"><select id="seFxAt"></select></div>
-          <label class="lbl">Размер карточки <span id="seScaleV" class="muted"></span></label><input id="seScale" type="range" min="0.8" max="1.7" step="0.01">
+          <div id="seScaleBox"><label class="lbl">Размер карточки <span id="seScaleV" class="muted"></span></label><input id="seScale" type="range" min="0.6" max="1.7" step="0.01"></div>
         </details>
       </div>
     </section>
     <section data-pane="style" hidden>
-      <label class="lbl">Пресет</label>
+      <label class="lbl">Пресет <span class="muted">— наведите на свой, чтобы удалить</span></label>
       <div id="presetGrid"></div>
+      <div class="row tight" style="margin-top:8px"><button id="bPresetImport">Импорт из файла…</button><button id="bPresetExport">Сохранить в файл…</button></div>
       <label class="lbl">Формат</label>
       <div class="row seg" id="fmt"><button data-v="9:16" class="on">9:16</button><button data-v="1:1">1:1</button><button data-v="4:5">4:5</button><button data-v="16:9">16:9</button></div>
       <label class="lbl">Отрезок ролика (сек)</label>
       <div class="row"><input id="vStart" type="number" step="0.05"><span class="muted">—</span><input id="vEnd" type="number" step="0.05"><button id="bAutoRange" title="По тексту">по тексту</button></div>
       <label class="lbl">Артист (плашка «сейчас играет»; пусто — без плашки)</label>
       <div class="row"><input id="artist" placeholder="melhor"><input id="songTitle" placeholder="название"></div>
-      <label class="lbl">Вотермарка (пусто — без)</label>
-      <div class="row"><input id="wm" placeholder="melhor"><input id="wmOp" type="range" min="0.08" max="0.6" step="0.01" title="прозрачность"></div>
+      <label class="lbl">Вотермарка: текст и/или логотип</label>
+      <div class="row"><input id="wm" placeholder="melhor"><input id="wmOp" type="range" min="0.08" max="0.8" step="0.01" title="прозрачность"></div>
+      <div class="row" style="margin-top:6px"><div id="wmLogo" class="imgPick"></div></div>
+      <details class="more" id="ctor">
+        <summary>Конструктор стиля</summary>
+        <label class="chk"><input type="checkbox" id="cOn"> свой стиль поверх пресета</label>
+        <div id="cBox">
+          <label class="lbl">Основа</label>
+          <select id="cTheme"><option value="cards">светлые карточки</option><option value="dark">тёмная</option><option value="soft">мягкая, текст под карточкой</option><option value="sky">небо, объёмный текст</option><option value="phone">всё в телефоне</option><option value="kinetic">постер, крупные слова</option></select>
+          <label class="lbl">Фон</label>
+          <div class="row"><select id="cBgType"><option value="gradient">градиент</option><option value="solid">сплошной</option><option value="radial">пятно в центре</option><option value="gingham">клетка</option><option value="grid">тетрадь</option></select><input id="cBg1" type="color" value="#F6F5F3"><input id="cBg2" type="color" value="#E4DAFF"></div>
+          <label class="lbl">Шрифт подписей и типографики</label>
+          <div class="row"><select id="cFont"></select><button id="cFontLoad" title="Загрузить .ttf / .otf / .woff">свой…</button></div>
+          <label class="lbl">Цвет акцента</label>
+          <div class="row"><input id="cAccent" type="color" value="#E10600"><span class="muted small">выделения в типографике, плашки</span></div>
+          <label class="lbl">Наклон карточек <span id="cTiltV" class="muted"></span></label><input id="cTilt" type="range" min="0" max="10" step="0.5">
+        </div>
+        <label class="lbl">Переход между сценами</label>
+        <select id="cTrans"><option value="">из пресета</option><option value="fade">плавное появление</option><option value="surface">всплытие из угла</option><option value="slide">слайд сбоку</option><option value="crisp">резкий снизу</option><option value="zoom">пролёт сквозь (зум)</option><option value="whip">хлыст (смаз)</option><option value="drop">падение с отскоком</option></select>
+      </details>
       <details class="more">
         <summary>Тонкая настройка</summary>
         <label class="lbl">Частицы на фоне</label>
@@ -99,6 +144,15 @@
         <label class="lbl">Затухание звука в конце (сек)</label><input id="fade" type="number" step="0.05">
       </details>
       <label class="lbl">Сохранить текущий стиль как свой пресет</label><div class="row"><input id="presetName" placeholder="название"><button id="bSavePreset">Сохранить</button></div>
+    </section>
+    <section data-pane="fx" hidden>
+      <div class="hint">Эффекты ложатся поверх любого пресета и сохраняются в своём пресете.</div>
+      <label class="lbl">Зерно плёнки <span id="fxGrainV" class="muted"></span></label><input id="fxGrain" type="range" min="0" max="0.6" step="0.02">
+      <label class="lbl">VHS: полосы, рябь, PLAY и дата <span id="fxVhsV" class="muted"></span></label><input id="fxVhs" type="range" min="0" max="1.5" step="0.05">
+      <label class="lbl">Хроматическая аберрация <span id="fxAberrV" class="muted"></span></label><input id="fxAberr" type="range" min="0" max="8" step="0.25">
+      <label class="lbl">Тряска камеры на бит <span id="fxShakeV" class="muted"></span></label><input id="fxShake" type="range" min="0" max="1.5" step="0.05">
+      <div class="hint">Тряска и аберрация реагируют на биты трека. Если битов не видно на таймлайне, они берутся из громкости баса.</div>
+      <button id="fxReset" class="wide">Сбросить эффекты</button>
     </section>
   </aside>
 </main>
@@ -115,20 +169,52 @@
 <!-- Экспорт -->
 <div id="exportModal" class="modal" hidden>
   <div class="mbox small">
-    <div class="mhead"><b>Экспорт в MP4</b><div class="grow"></div><button id="xClose" class="ghost">✕</button></div>
+    <div class="mhead"><b>Экспорт видео</b><div class="grow"></div><button id="xClose" class="ghost">✕</button></div>
+    <label class="lbl">Куда</label>
+    <div class="row seg wrap" id="xPlat"><button data-v="" class="on">Свой</button><button data-v="reels">Reels</button><button data-v="tiktok">TikTok</button><button data-v="shorts">Shorts</button></div>
+    <label class="lbl">Файл</label>
+    <div class="row seg" id="xCont"><button data-v="mp4" class="on">MP4</button><button data-v="mov">MOV · прозрачный фон</button><button data-v="webm">WebM · прозрачный</button></div>
+    <div id="xAlphaHint" class="hint" hidden>Фон, дым и частицы не попадут в видео — останутся карточки, текст и эмодзи. MOV (ProRes 4444) открывают Premiere, DaVinci, Final Cut и CapCut на компьютере; файл большой.</div>
     <label class="lbl">Качество</label>
-    <div class="row seg" id="xRes"><button data-v="720">720p · быстро</button><button data-v="1080" class="on">1080p</button></div>
-    <div id="xInfo" class="muted small"></div>
+    <div class="row seg" id="xRes"><button data-v="720">720p</button><button data-v="1080" class="on">1080p</button><button data-v="1440">1440p</button><button data-v="2160">4K</button></div>
+    <label class="lbl">Кадров в секунду</label>
+    <div class="row seg" id="xFps"><button data-v="30" class="on">30</button><button data-v="60">60 · плавнее, вдвое дольше</button></div>
+    <label class="chk" style="margin-top:12px"><input type="checkbox" id="xDraft"> черновик: 360p, 15 кадров/с — быстро проверить ролик</label>
+    <div id="xInfo" class="muted small" style="margin-top:10px"></div>
     <div class="bar"><i id="xBar"></i></div>
     <div id="xStatus" class="status"></div>
-    <div class="row"><button id="xGo" class="primary wide">Сохранить видео…</button><button id="xCancel" hidden>Отмена</button></div>
+    <div class="row"><button id="xGo" class="primary wide">Сохранить видео…</button><button id="xCancel" hidden>Отмена</button><button id="xShow" hidden>Показать в папке</button></div>
+  </div>
+</div>
+
+<!-- Горячие клавиши -->
+<div id="keysModal" class="modal" hidden>
+  <div class="mbox small">
+    <div class="mhead"><b>Горячие клавиши</b><div class="grow"></div><button class="ghost" onclick="this.closest('.modal').hidden=true">✕</button></div>
+    <table class="keys">
+      <tr><td><kbd>Пробел</kbd></td><td>играть / пауза</td></tr>
+      <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>перемотка на 1 с (с Shift — на 5 с)</td></tr>
+      <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>предыдущая / следующая сцена</td></tr>
+      <tr><td><kbd>Home</kbd></td><td>в начало ролика</td></tr>
+      <tr><td><kbd>S</kbd></td><td>разрезать сцену на месте курсора</td></tr>
+      <tr><td><kbd>M</kbd></td><td>объединить сцену со следующей</td></tr>
+      <tr><td><kbd>G</kbd></td><td>сменить шаблон сцены</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>отменить</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>повторить</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>сохранить (с Shift — сохранить как)</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>открыть проект</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>экспорт видео</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+колесо</td><td>масштаб таймлайна</td></tr>
+    </table>
   </div>
 </div>
 
 <div id="toast"></div>
 <script src="templates.js"></script>
 <script src="spectrum.js"></script>
+<script src="beats.js"></script>
 <script src="mock-api.js"></script>
+<script src="timeline.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
