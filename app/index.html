@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Lyric Studio</title>
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <div class="logo"><span class="dot"></span>Lyric Studio</div>
+  <div class="grow"></div>
+  <button id="bNew" class="ghost">Новый</button>
+  <button id="bOpen" class="ghost">Открыть</button>
+  <button id="bSave" class="ghost">Сохранить</button>
+  <button id="bExport" class="primary">Экспорт в MP4</button>
+</header>
+
+<main>
+  <!-- ЛЕВАЯ ПАНЕЛЬ: трек, текст, слова -->
+  <aside id="left" class="panel">
+    <div class="tabs"><button data-tab="track" class="on">Трек и текст</button><button data-tab="words">Слова</button></div>
+    <section data-pane="track">
+      <label class="lbl">Трек</label>
+      <div class="row"><button id="bAudio">Выбрать файл…</button><span id="audioName" class="muted ell">не выбран</span></div>
+      <label class="lbl">Текст песни <span class="muted">— одна строка = одна строка на экране</span></label>
+      <textarea id="lyrics" rows="12" placeholder="села батарейка&#10;нужен energizer{энерджайзер}, бро&#10;…"></textarea>
+      <div class="hint">Подсказка: латиницу и цифры можно подсказать в фигурных скобках — <code>love{лав}</code>, <code>1:0{одинноль}</code>. Скобки на экран не попадут.</div>
+      <label class="lbl">Где искать текст в треке (сек)</label>
+      <div class="row"><input id="alFrom" type="number" step="0.1" placeholder="с начала"><span class="muted">—</span><input id="alTo" type="number" step="0.1" placeholder="до конца"></div>
+      <button id="bAlign" class="primary wide">Синхронизировать слова</button>
+      <div id="alignStatus" class="status"></div>
+      <label class="lbl">Строк в сцене (для авторазбивки)</label>
+      <div class="row seg" id="perScene"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="3">3</button></div>
+      <button id="bAutoScenes" class="wide">Разбить на сцены заново</button>
+    </section>
+    <section data-pane="words" hidden>
+      <div class="hint">Клик по слову — перейти к нему. Сдвигайте время кнопками ±, если слово появляется не в такт.</div>
+      <div id="wordList"></div>
+    </section>
+  </aside>
+
+  <!-- ЦЕНТР: превью -->
+  <section id="center">
+    <div id="stageWrap"><div id="stage"><iframe id="preview" title="preview"></iframe></div></div>
+    <div id="transport">
+      <button id="bPlay" class="round">▶</button>
+      <span id="tCur" class="mono">0:00.0</span>
+      <input id="scrub" type="range" min="0" max="1000" value="0">
+      <span id="tEnd" class="mono">0:00.0</span>
+    </div>
+    <div id="sceneStrip"></div>
+  </section>
+
+  <!-- ПРАВАЯ ПАНЕЛЬ: стиль и сцены -->
+  <aside id="right" class="panel">
+    <div class="tabs"><button data-tab="scene" class="on">Сцена</button><button data-tab="style">Стиль</button></div>
+    <section data-pane="scene">
+      <div id="sceneEmpty" class="muted pad">Добавьте трек и текст, затем нажмите «Синхронизировать слова» — сцены создадутся сами.</div>
+      <div id="sceneEditor" hidden>
+        <div class="sceneHead">
+          <div><div class="muted small" id="seIdx"></div><div id="seText" class="seText"></div></div>
+        </div>
+        <div class="row tight">
+          <button id="seMergePrev" title="Объединить с предыдущей">⇤ объединить</button>
+          <button id="seSplit" title="Разделить пополам">разделить</button>
+          <button id="seMergeNext" title="Объединить со следующей">объединить ⇥</button>
+        </div>
+        <label class="lbl">Шаблон</label>
+        <button id="seTpl" class="tplBtn"><img id="seTplImg" alt=""><span id="seTplName"></span><span class="muted">сменить…</span></button>
+        <div id="seFields"></div>
+        <details class="more" open>
+          <summary>Акценты</summary>
+          <label class="lbl">Подпрыгнуть на слове</label><select id="seBump"></select>
+          <label class="lbl">Штамп (текст, пусто — без штампа)</label><div class="row"><input id="seStamp" placeholder="Понятно ✓"><select id="seStampAt"></select></div>
+          <label class="lbl">Частицы-эмодзи (пусто — без)</label><div class="row"><input id="seFx" placeholder="💨" class="emo"><select id="seFxAt"></select></div>
+          <label class="lbl">Размер карточки <span id="seScaleV" class="muted"></span></label><input id="seScale" type="range" min="0.8" max="1.7" step="0.01">
+        </details>
+      </div>
+    </section>
+    <section data-pane="style" hidden>
+      <label class="lbl">Пресет</label>
+      <div id="presetGrid"></div>
+      <label class="lbl">Формат</label>
+      <div class="row seg" id="fmt"><button data-v="9:16" class="on">9:16</button><button data-v="1:1">1:1</button><button data-v="4:5">4:5</button><button data-v="16:9">16:9</button></div>
+      <label class="lbl">Отрезок ролика (сек)</label>
+      <div class="row"><input id="vStart" type="number" step="0.05"><span class="muted">—</span><input id="vEnd" type="number" step="0.05"><button id="bAutoRange" title="По тексту">по тексту</button></div>
+      <label class="lbl">Артист (плашка «сейчас играет»; пусто — без плашки)</label>
+      <div class="row"><input id="artist" placeholder="melhor"><input id="songTitle" placeholder="название"></div>
+      <label class="lbl">Вотермарка (пусто — без)</label>
+      <div class="row"><input id="wm" placeholder="melhor"><input id="wmOp" type="range" min="0.08" max="0.6" step="0.01" title="прозрачность"></div>
+      <details class="more">
+        <summary>Тонкая настройка</summary>
+        <label class="lbl">Частицы на фоне</label>
+        <div class="row"><select id="partType"><option value="">из пресета</option><option value="none">нет</option><option value="stars">звёзды</option><option value="snow">снег</option><option value="rain">дождь</option><option value="bokeh">огни</option><option value="sparks">искры</option></select><input id="partColor" type="color" value="#ffffff"></div>
+        <label class="lbl">Пульс фона под бит <span id="beatV" class="muted"></span></label><input id="beat" type="range" min="0" max="0.06" step="0.005">
+        <label class="lbl">Цвет дыма</label><div class="row"><input id="smokeA" type="color" value="#78aa78"><input id="smokeB" type="color" value="#9678c8"><label class="chk"><input type="checkbox" id="smokeOn"> свой цвет</label></div>
+        <label class="lbl">Опережение сцены (сек)</label><input id="lead" type="number" step="0.01">
+        <label class="lbl">Затухание звука в конце (сек)</label><input id="fade" type="number" step="0.05">
+      </details>
+      <label class="lbl">Сохранить текущий стиль как свой пресет</label><div class="row"><input id="presetName" placeholder="название"><button id="bSavePreset">Сохранить</button></div>
+    </section>
+  </aside>
+</main>
+
+<!-- Галерея шаблонов -->
+<div id="gallery" class="modal" hidden>
+  <div class="mbox">
+    <div class="mhead"><b>Шаблоны сцен</b><div class="grow"></div><button id="gClose" class="ghost">✕</button></div>
+    <div id="gCats" class="row wrap"></div>
+    <div id="gGrid"></div>
+  </div>
+</div>
+
+<!-- Экспорт -->
+<div id="exportModal" class="modal" hidden>
+  <div class="mbox small">
+    <div class="mhead"><b>Экспорт в MP4</b><div class="grow"></div><button id="xClose" class="ghost">✕</button></div>
+    <label class="lbl">Качество</label>
+    <div class="row seg" id="xRes"><button data-v="720">720p · быстро</button><button data-v="1080" class="on">1080p</button></div>
+    <div id="xInfo" class="muted small"></div>
+    <div class="bar"><i id="xBar"></i></div>
+    <div id="xStatus" class="status"></div>
+    <div class="row"><button id="xGo" class="primary wide">Сохранить видео…</button><button id="xCancel" hidden>Отмена</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="templates.js"></script>
+<script src="spectrum.js"></script>
+<script src="mock-api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

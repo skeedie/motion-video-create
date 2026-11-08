@@ -1,0 +1,33 @@
+name: Сборка .exe
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Установка зависимостей
+        run: npm install --no-audit --no-fund
+      - name: Сборка
+        run: npx electron-builder --win --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Файлы сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: LyricStudio-windows
+          path: dist/*.exe
+      - name: Релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Lyric Studio · сборка ${{ github.run_number }}
+          body: "Скачайте LyricStudio-Setup (установщик) или LyricStudio-Portable (без установки)."
+          files: dist/*.exe

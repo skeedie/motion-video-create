@@ -1,0 +1,16 @@
+@font-face{font-family:'Inter';src:url('fonts/Inter-Black.otf');font-weight:900;font-style:normal}
+@font-face{font-family:'Inter';src:url('fonts/Inter-BlackItalic.otf');font-weight:900;font-style:italic}
+@font-face{font-family:'Inter';src:url('fonts/Inter-Bold.otf');font-weight:700;font-style:normal}
+@font-face{font-family:'Inter';src:url('fonts/Inter-ExtraBold.otf');font-weight:800;font-style:normal}
+@font-face{font-family:'Inter';src:url('fonts/Inter-ExtraBoldItalic.otf');font-weight:800;font-style:italic}
+@font-face{font-family:'Inter';src:url('fonts/Inter-Medium.otf');font-weight:500;font-style:normal}
+@font-face{font-family:'Inter';src:url('fonts/Inter-Regular.otf');font-weight:400;font-style:normal}
+@font-face{font-family:'Inter';src:url('fonts/Inter-SemiBold.otf');font-weight:600;font-style:normal}
+@font-face{font-family:'Inter Display';src:url('fonts/InterDisplay-Black.otf');font-weight:900;font-style:normal}
+@font-face{font-family:'Inter Display';src:url('fonts/InterDisplay-Bold.otf');font-weight:700;font-style:normal}
+@font-face{font-family:'Inter Display';src:url('fonts/InterDisplay-ExtraBold.otf');font-weight:800;font-style:normal}
+@font-face{font-family:'Inter Display';src:url('fonts/InterDisplay-Medium.otf');font-weight:500;font-style:normal}
+@font-face{font-family:'Inter Display';src:url('fonts/InterDisplay-SemiBold.otf');font-weight:600;font-style:normal}
+@font-face{font-family:'Nunito';src:url('fonts/Nunito.ttf');font-weight:200 1000}
+@font-face{font-family:'Noto Color Emoji';src:url('fonts/NotoColorEmoji.ttf')}
+@font-face{font-family:'DejaVu Sans Mono';src:url('fonts/DejaVuSansMono-Bold.ttf');font-weight:700 900}
