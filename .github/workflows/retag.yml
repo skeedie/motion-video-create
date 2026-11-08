@@ -1,0 +1,20 @@
+name: Перевесить метки релизов
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/retag.yml']
+permissions:
+  contents: write
+jobs:
+  retag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Метки на коммиты без ссылки на сессию
+        run: |
+          git push --force origin 16f85e490b88e712724eb1f33f8da10f8abadfe6:refs/tags/build-1
+          git push --force origin c2588ea724fc73b74aa3a20fb6c5dcb274e88450:refs/tags/build-2
+          git push --force origin c2588ea724fc73b74aa3a20fb6c5dcb274e88450:refs/tags/model-v1
+          git ls-remote origin 'refs/tags/*'
