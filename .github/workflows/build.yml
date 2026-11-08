@@ -29,7 +29,7 @@ jobs:
         run: |
           set +e
           for i in 1 2 3 4 5 6 7 8 9 10; do npm install --no-audit --no-fund && exit 0; echo "попытка $i не удалась, жду 90 с"; sleep 90; done; exit 1
-      - name: Сборка .exe (electron-builder)
+      - name: Сборка .exe через electron-builder
         run: npx electron-builder --win --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
