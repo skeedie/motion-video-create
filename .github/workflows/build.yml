@@ -14,8 +14,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Установка зависимостей
-        run: npm install --no-audit --no-fund
+      - name: Установка зависимостей (с повтором при сбоях сети)
+        shell: bash
+        run: |
+          for i in 1 2 3; do npm install --no-audit --no-fund && exit 0; echo "попытка $i не удалась, жду"; sleep 20; done; exit 1
       - name: Сборка
         run: npx electron-builder --win --publish never
         env:
