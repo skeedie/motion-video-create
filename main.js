@@ -1,6 +1,11 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, shell, clipboard } = require('electron');
-const path = require('path'), fs = require('fs'), os = require('os'), { spawn } = require('child_process'), { pathToFileURL } = require('url');
+const path = require('path'), fs = require('fs'), os = require('os'), cp = require('child_process'), { pathToFileURL } = require('url');
+// все запущенные ffmpeg запоминаются и завершаются при выходе: в Windows дочерние процессы сами не закрываются и держат файлы программы
+const CHILDREN = new Set(), _spawn = cp.spawn;
+cp.spawn = function (...a) { const p = _spawn.apply(this, a); const o = a[2] || (Array.isArray(a[1]) ? null : a[1]) || {}; if (!o.detached) { CHILDREN.add(p); p.on('exit', () => CHILDREN.delete(p)); p.on('error', () => CHILDREN.delete(p)); } return p; };
+const killChildren = () => { for (const p of CHILDREN) { try { p.kill('SIGKILL'); } catch (e) {} } CHILDREN.clear(); };
+const { spawn } = cp;
 const A = require('./align');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
@@ -63,7 +68,8 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { cancelFlag = true; BrowserWindow.getAllWindows().forEach(w => { if (w !== mainWin) try { w.destroy(); } catch (e) {} }); });
-app.on('will-quit', () => { setTimeout(() => process.exit(0), 2000).unref(); });
+app.on('will-quit', () => { killChildren(); setTimeout(() => process.exit(0), 2000).unref(); });
+process.on('exit', killChildren);
 
 // видео и картинки для фона: отдаём файл с поддержкой Range (перемотка видео)
 const MEDIA_EXT = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
@@ -222,7 +228,7 @@ handle('installUpdate', async (ev, info) => {
   try { await Promise.race([mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
   // установщик стартует, когда эта программа уже полностью закрылась
   spawn('cmd.exe', ['/d', '/c', `ping 127.0.0.1 -n 3 > nul & start "" "${dest}"`], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-  setTimeout(() => app.exit(0), 300);
+  setTimeout(() => { killChildren(); app.exit(0); }, 300);
   return { installer: true };
 });
 handle('openExternal', async (ev, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; });
