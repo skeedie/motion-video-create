@@ -105,21 +105,50 @@ handle('pickFont', () => pickBinary('Выберите шрифт', 'Шрифты
 const RECENT = () => UD('recent.json');
 function readRecent() { try { return JSON.parse(fs.readFileSync(RECENT(), 'utf8')).filter(r => r && r.path && fs.existsSync(r.path)); } catch (e) { return []; } }
 function pushRecent(p) { const list = readRecent().filter(r => r.path !== p); list.unshift({ path: p, name: path.basename(p), time: Date.now() }); try { fs.writeFileSync(RECENT(), JSON.stringify(list.slice(0, 10), null, 1)); } catch (e) {} }
+// проект вместе с треком и видеофоном: LSPZ1 + длина манифеста + манифест JSON + файлы подряд
+function writeBundle(fp, json) {
+  const proj = JSON.parse(json), files = [];
+  if (proj.audioPath && fs.existsSync(proj.audioPath)) files.push({ key: 'audio', name: path.basename(proj.audioPath), src: proj.audioPath });
+  const bm = proj.style && proj.style.bgMedia; if (bm && bm.type === 'video' && bm.path && fs.existsSync(bm.path)) files.push({ key: 'bg', name: path.basename(bm.path), src: bm.path });
+  files.forEach(f => f.size = fs.statSync(f.src).size);
+  const man = Buffer.from(JSON.stringify({ project: json, files: files.map(({ key, name, size }) => ({ key, name, size })) }), 'utf8'), head = Buffer.alloc(9); head.write('LSPZ1', 0); head.writeUInt32LE(man.length, 5);
+  const tmp = fp + '.tmp', fd = fs.openSync(tmp, 'w'); fs.writeSync(fd, head); fs.writeSync(fd, man);
+  for (const f of files) { const rd = fs.openSync(f.src, 'r'), buf = Buffer.alloc(4 * 2 ** 20); let n; while ((n = fs.readSync(rd, buf, 0, buf.length, null)) > 0) fs.writeSync(fd, buf, 0, n); fs.closeSync(rd); }
+  fs.closeSync(fd); fs.renameSync(tmp, fp);
+}
+function readBundle(fp) {
+  const fd = fs.openSync(fp, 'r'), head = Buffer.alloc(9); fs.readSync(fd, head, 0, 9, 0);
+  if (head.toString('utf8', 0, 5) !== 'LSPZ1') { fs.closeSync(fd); throw new Error('это не файл проекта с треком'); }
+  const ml = head.readUInt32LE(5), mb = Buffer.alloc(ml); fs.readSync(fd, mb, 0, ml, 9); const man = JSON.parse(mb.toString('utf8')), proj = JSON.parse(man.project);
+  const dir = UD('bundles', path.basename(fp).replace(/\.lspz$/i, '') + '-' + fs.statSync(fp).size); fs.mkdirSync(dir, { recursive: true });
+  let pos = 9 + ml;
+  for (const f of man.files) {
+    const out = path.join(dir, f.name.replace(/[\\/:*?"<>|]/g, '_'));
+    if (!fs.existsSync(out) || fs.statSync(out).size !== f.size) { const wd = fs.openSync(out, 'w'), buf = Buffer.alloc(4 * 2 ** 20); let left = f.size, p = pos; while (left > 0) { const n = fs.readSync(fd, buf, 0, Math.min(buf.length, left), p); if (!n) break; fs.writeSync(wd, buf, 0, n); left -= n; p += n; } fs.closeSync(wd); }
+    pos += f.size;
+    if (f.key === 'audio') proj.audioPath = out; if (f.key === 'bg' && proj.style && proj.style.bgMedia) proj.style.bgMedia.path = out;
+  }
+  fs.closeSync(fd); return JSON.stringify(proj);
+}
+handle('saveBundle', async (ev, json, name) => {
+  const r = await dialog.showSaveDialog(mainWin, { title: 'Сохранить проект вместе с треком', defaultPath: name, filters: [{ name: 'Проект с треком', extensions: ['lspz'] }] });
+  if (r.canceled || !r.filePath) return null; writeBundle(r.filePath, json); pushRecent(r.filePath); return r.filePath;
+});
 handle('saveProject', async (ev, json, name, existing) => {
   let fp = existing && fs.existsSync(path.dirname(existing)) ? existing : null;
   if (!fp) {
     const r = await dialog.showSaveDialog(mainWin, { title: 'Сохранить проект', defaultPath: name, filters: [{ name: 'Проект Lyric Studio', extensions: ['lsp'] }] });
     if (r.canceled || !r.filePath) return null; fp = r.filePath;
   }
-  writeAtomic(fp, json); pushRecent(fp); return fp;
+  if (/\.lspz$/i.test(fp)) writeBundle(fp, json); else writeAtomic(fp, json); pushRecent(fp); return fp;
 });
 handle('openProject', async (ev, given) => {
   let fp = given;
   if (!fp) {
-    const r = await dialog.showOpenDialog(mainWin, { title: 'Открыть проект', properties: ['openFile'], filters: [{ name: 'Проект Lyric Studio', extensions: ['lsp', 'json'] }] });
+    const r = await dialog.showOpenDialog(mainWin, { title: 'Открыть проект', properties: ['openFile'], filters: [{ name: 'Проект Lyric Studio', extensions: ['lsp', 'lspz', 'json'] }] });
     if (r.canceled || !r.filePaths[0]) return null; fp = r.filePaths[0];
   }
-  const json = fs.readFileSync(fp, 'utf8'); pushRecent(fp); return { json, path: fp };
+  const json = /\.lspz$/i.test(fp) ? readBundle(fp) : fs.readFileSync(fp, 'utf8'); pushRecent(fp); return { json, path: fp };
 });
 handle('recent', async () => readRecent());
 handle('autosave', async (ev, json) => { writeAtomic(UD('autosave.lsp'), json); return true; });
@@ -129,6 +158,9 @@ handle('clearAutosave', async () => { try { fs.unlinkSync(UD('autosave.lsp')); }
 // ---------- пресеты ----------
 handle('loadUserPresets', async () => { try { return JSON.parse(fs.readFileSync(USER_PRESETS(), 'utf8')); } catch (e) { return {}; } });
 handle('saveUserPresets', async (ev, p) => { writeAtomic(USER_PRESETS(), JSON.stringify(p, null, 1)); return true; });
+const PROFILE_F = () => UD('profile.json');
+handle('loadProfile', async () => { try { return JSON.parse(fs.readFileSync(PROFILE_F(), 'utf8')); } catch (e) { return {}; } });
+handle('saveProfile', async (ev, p) => { writeAtomic(PROFILE_F(), JSON.stringify(p)); return true; });
 const USER_TPL = () => UD('user-templates.json');
 handle('loadUserTemplates', async () => { try { return JSON.parse(fs.readFileSync(USER_TPL(), 'utf8')); } catch (e) { return {}; } });
 handle('saveUserTemplates', async (ev, p) => { writeAtomic(USER_TPL(), JSON.stringify(p)); return true; });
@@ -275,7 +307,18 @@ handle('align', async (ev, args) => {
 // job: { html, W, H, width, fps, start, end, fade, audioPath, name, container: 'mp4'|'mov'|'webm'|'gif', draft, outPath? }
 // Кадры рендерятся параллельно в нескольких скрытых окнах, каждое пишет свой кусок; куски склеиваются без перекодирования и сводятся со звуком.
 const SEG = { mp4: 'mp4', mov: 'mov', webm: 'mov', gif: 'mp4' };
+let GPU = undefined;
+async function detectGpu() {
+  if (GPU !== undefined) return GPU; GPU = null;
+  for (const [enc, name] of [['h264_nvenc', 'NVIDIA'], ['h264_qsv', 'Intel'], ['h264_amf', 'AMD']]) {
+    try { await runFF(['-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=256x256:d=0.3', '-c:v', enc, '-f', 'null', '-']); GPU = { enc, name }; break; } catch (e) {}
+  }
+  log('видеокарта для кодирования:', GPU ? GPU.enc : 'нет'); return GPU;
+}
+handle('gpuInfo', async () => await detectGpu());
+const GPU_ARGS = { h264_nvenc: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '19', '-b:v', '0', '-pix_fmt', 'yuv420p'], h264_qsv: ['-c:v', 'h264_qsv', '-global_quality', '20', '-pix_fmt', 'nv12'], h264_amf: ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', '18', '-qp_p', '20', '-pix_fmt', 'yuv420p'] };
 function segCodec(job, outW, outH) {
+  if (job.container === 'mp4' && job.gpuEnc && GPU_ARGS[job.gpuEnc]) return GPU_ARGS[job.gpuEnc];
   if (job.container === 'mov' || job.container === 'webm') return ['-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', '-vendor', 'apl0'];
   if (job.container === 'gif') return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '12', '-pix_fmt', 'yuv420p'];
   return ['-c:v', 'libx264', '-preset', job.draft ? 'ultrafast' : outH * outW > 2.2e6 ? 'faster' : 'veryfast', '-crf', job.draft ? '28' : '18', '-pix_fmt', 'yuv420p'];
@@ -291,7 +334,12 @@ function finalArgs(job, list, out, outW) {
   if (job.container === 'gif') return ['-v', 'error', '-y', ...vin, '-vf', `fps=${Math.min(job.fps, 20)},scale=${Math.min(outW, 720)}:-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a`, '-loop', '0', out];
   const v = job.container === 'webm' ? ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-b:v', '0', '-crf', '30', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-auto-alt-ref', '0'] : ['-c:v', 'copy'];
   const a = job.container === 'webm' ? ['-c:a', 'libopus', '-b:a', '160k'] : ['-c:a', 'aac', '-b:a', job.draft ? '128k' : job.container === 'mov' ? '256k' : '192k'];
-  return ['-v', 'error', '-y', ...vin, ...ain, '-map', '0:v', '-map', '1:a', ...v, ...a, ...af, '-shortest', ...(job.container === 'mp4' ? ['-movflags', '+faststart'] : []), out];
+  const tail = ['-shortest', ...(job.container === 'mp4' ? ['-movflags', '+faststart'] : []), out];
+  if (job.sfxPath) {
+    const fd = `afade=t=out:st=${(dur - fade).toFixed(3)}:d=${fade.toFixed(3)}`;
+    return ['-v', 'error', '-y', ...vin, ...ain, '-i', job.sfxPath, '-filter_complex', `[1:a]${fd}[m];[2:a]volume=${(+job.sfxVol || .7).toFixed(2)},${fd}[s];[m][s]amix=inputs=2:duration=first:normalize=0[a]`, '-map', '0:v', '-map', '[a]', ...v, ...a, ...tail];
+  }
+  return ['-v', 'error', '-y', ...vin, ...ain, '-map', '0:v', '-map', '1:a', ...v, ...a, ...af, ...tail];
 }
 const runFF = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let e = ''; p.stderr.on('data', d => e += d); p.on('error', rej); p.on('close', c => c === 0 ? res() : rej(new Error('ffmpeg: ' + e.slice(0, 500)))); });
 async function openEngine(outW, outH, zoom, alpha) {
@@ -330,7 +378,7 @@ async function renderSegment(job, k0, k1, file, dims, onFrame) {
 handle('cancelExport', () => { cancelFlag = true; });
 handle('pickFolder', async () => { const r = await dialog.showOpenDialog(mainWin, { title: 'Папка для видео', properties: ['openDirectory', 'createDirectory'] }); return r.canceled ? null : r.filePaths[0]; });
 const FNAME = { mp4: 'Видео MP4', mov: 'MOV с прозрачностью (ProRes 4444)', webm: 'WebM с прозрачностью (VP9)', gif: 'GIF-анимация' };
-handle('exportVideo', async (ev, job) => {
+async function exportVideoImpl(ev, job) {
   const ext = job.container || 'mp4';
   let out = job.outPath;
   if (!out) { const r = await dialog.showSaveDialog(mainWin, { title: 'Сохранить видео', defaultPath: (job.name || 'video') + '.' + ext, filters: [{ name: FNAME[ext], extensions: [ext] }] }); if (r.canceled || !r.filePath) return { ok: false }; out = r.filePath; }
@@ -339,7 +387,9 @@ handle('exportVideo', async (ev, job) => {
   const fps = job.fps || 30, outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2, zoom = outW / job.W, n = Math.max(1, Math.round((job.end - job.start) * fps));
   const cores = os.cpus().length, maxW = outW * outH > 2.2e6 ? 2 : 4, workers = Math.max(1, Math.min(maxW, Math.floor(cores / 3), Math.ceil(n / 60), job.workers || 99));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyric-')), t0 = Date.now(); let doneFrames = 0;
-  log(`экспорт: ${outW}x${outH} ${fps}fps ${ext}${job.draft ? ' черновик' : ''}, окон: ${workers} → ${out}`);
+  if (job.gpu && ext === 'mp4') { const g = await detectGpu(); if (g) job.gpuEnc = g.enc; }
+  if (job.sfx && job.sfx.data && ext !== 'gif') { job.sfxPath = path.join(tmp, 'sfx.wav'); fs.writeFileSync(job.sfxPath, Buffer.from(job.sfx.data)); job.sfxVol = job.sfx.vol; }
+  log(`экспорт: ${outW}x${outH} ${fps}fps ${ext}${job.draft ? ' черновик' : ''}, окон: ${workers}${job.gpuEnc ? ', ' + job.gpuEnc : ''}${job.sfxPath ? ', звуки' : ''} → ${out}`);
   JOB_HTML = job.html;
   try {
     progress(0, `Готовлю движок (${workers} ${workers === 1 ? 'окно' : 'окна'})…`);
@@ -355,8 +405,14 @@ handle('exportVideo', async (ev, job) => {
   } catch (e) {
     try { fs.unlinkSync(out); } catch (x) {}
     if (e.message === '__cancel') return { ok: false, cancelled: true };
+    if (job.gpuEnc) { log('видеокарта не справилась, повторяю на процессоре:', e.message); GPU = null; return { retry: true, out }; }
     throw e;
   } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} }
+}
+handle('exportVideo', async (ev, job) => {
+  const r = await exportVideoImpl(ev, job);
+  if (r && r.retry) { send(ev, 'progress:export', { frac: 0, text: 'Видеокарта не справилась — повторяю на процессоре…' }); return await exportVideoImpl(ev, Object.assign({}, job, { gpu: false, gpuEnc: undefined, outPath: r.out })); }
+  return r;
 });
 // один кадр в PNG (кадр из ролика или обложка)
 handle('exportFrame', async (ev, job) => {

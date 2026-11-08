@@ -15,9 +15,17 @@
   </div>
   <span id="projName" class="muted small ell"></span>
   <div class="grow"></div>
-  <button id="bNew" class="ghost">Новый</button>
+  <button id="bProfile" class="ghost" title="Ник, аватарка, логотип и цвет — подставляются во все шаблоны">Профиль</button>
+  <div class="dd"><button id="bNew" class="ghost">Новый ▾</button><div id="newMenu" class="menu" hidden>
+    <button data-act="blank">Пустой проект</button>
+    <button data-act="style">Новый в стиле текущего</button>
+  </div></div>
   <div class="dd"><button id="bOpen" class="ghost">Открыть ▾</button><div id="openMenu" class="menu" hidden></div></div>
-  <button id="bSave" class="ghost" title="Ctrl+S">Сохранить</button>
+  <div class="dd"><button id="bSave" class="ghost" title="Ctrl+S">Сохранить ▾</button><div id="saveMenu" class="menu" hidden>
+    <button data-act="save">Сохранить <span class="muted small">Ctrl+S</span></button>
+    <button data-act="as">Сохранить как… <span class="muted small">Ctrl+Shift+S</span></button>
+    <button data-act="bundle">Сохранить вместе с треком (.lspz)…</button>
+  </div></div>
   <div class="dd"><button id="bHelp" class="ghost icon" title="Помощь">?</button><div id="helpMenu" class="menu right" hidden>
     <button data-act="keys">Горячие клавиши</button>
     <button data-act="update">Проверить обновления</button>
@@ -65,6 +73,7 @@
       <span id="tCur" class="mono">0:00.0</span>
       <input id="scrub" type="range" min="0" max="1000" value="0">
       <span id="tEnd" class="mono">0:00.0</span>
+      <label class="chk small" title="Упрощает дым, частицы и размытия в превью — для слабых компьютеров. На экспорт не влияет"><input type="checkbox" id="litePrev"> лёгкое превью</label>
       <select id="safeSel" title="Безопасные зоны площадки"><option value="">зоны: нет</option><option value="reels">зоны Reels</option><option value="tiktok">зоны TikTok</option><option value="shorts">зоны Shorts</option></select>
     </div>
     <div id="tlBar">
@@ -111,8 +120,12 @@
           <label class="lbl">Штамп (текст, пусто — без штампа)</label><div class="row"><input id="seStamp" placeholder="Понятно ✓"><select id="seStampAt"></select></div>
           </div>
           <label class="lbl">Частицы-эмодзи (пусто — без)</label><div class="row"><input id="seFx" placeholder="💨" class="emo"><select id="seFxAt"></select></div>
+          <div class="row" style="margin-top:4px"><div style="flex:1"><label class="lbl">Переход сцены</label><select id="seTrans"><option value="">как в стиле</option><option value="fade">плавно</option><option value="surface">всплытие</option><option value="slide">слайд</option><option value="crisp">резкий</option><option value="zoom">зум</option><option value="whip">хлыст</option><option value="drop">падение</option></select></div>
+          <div style="flex:1"><label class="lbl">Камера</label><select id="seCam"><option value="">нет</option><option value="in">наезд</option><option value="out">отъезд</option><option value="left">панорама ←</option><option value="right">панорама →</option><option value="sway">покачивание</option></select></div></div>
           <div id="seScaleBox"><label class="lbl">Размер карточки <span id="seScaleV" class="muted"></span></label><input id="seScale" type="range" min="0.6" max="1.7" step="0.01"></div>
         </details>
+        <div class="row tight" style="margin-top:14px"><button id="bAutoAcc" title="Подпрыгивание на сильной доле и эмодзи по смыслу — во всех сценах, где акценты не заданы">авто-акценты для всех сцен</button><button id="bClearAcc">убрать авто-акценты</button></div>
+        <div class="hint">Двойной клик по слову на таймлайне — свой акцент для этого слова: цвет, увеличение, тряска, эмодзи.</div>
       </div>
     </section>
     <section data-pane="style" hidden>
@@ -123,6 +136,9 @@
       <div class="row seg" id="fmt"><button data-v="9:16" class="on">9:16</button><button data-v="1:1">1:1</button><button data-v="4:5">4:5</button><button data-v="16:9">16:9</button></div>
       <label class="lbl">Отрезок ролика (сек)</label>
       <div class="row"><input id="vStart" type="number" step="0.05"><span class="muted">—</span><input id="vEnd" type="number" step="0.05"><button id="bAutoRange" title="По тексту">по тексту</button></div>
+      <div class="row tight" style="margin-top:6px"><span class="muted small" style="flex:none">лучший кусок:</span><button class="bestBtn" data-v="15">15 с</button><button class="bestBtn" data-v="30">30 с</button><button class="bestBtn" data-v="60">60 с</button></div>
+      <label class="lbl">Текст-крючок сверху (первые секунды, пусто — без)</label>
+      <div class="row"><textarea id="hookText" rows="2" placeholder="когда проснулся и понял…"></textarea><input id="hookDur" type="number" step="0.5" min="1" max="8" style="max-width:62px" title="секунд"></div>
       <label class="lbl">Артист (плашка «сейчас играет»; пусто — без плашки)</label>
       <div class="row"><input id="artist" placeholder="melhor"><input id="songTitle" placeholder="название"></div>
       <label class="lbl">Вотермарка: текст и/или логотип</label>
@@ -184,7 +200,17 @@
       <label class="lbl">Хроматическая аберрация <span id="fxAberrV" class="muted"></span></label><input id="fxAberr" type="range" min="0" max="8" step="0.25">
       <label class="lbl">Тряска камеры на бит <span id="fxShakeV" class="muted"></span></label><input id="fxShake" type="range" min="0" max="1.5" step="0.05">
       <div class="hint">Тряска и аберрация реагируют на биты трека. Если битов не видно на таймлайне, они берутся из громкости баса.</div>
+      <label class="chk" style="margin-top:12px"><input type="checkbox" id="fxEnergy"> сильнее на припеве и дропе, тише в спокойных местах</label>
       <button id="fxReset" class="wide">Сбросить эффекты</button>
+      <h4 class="sub">Звуковые эффекты</h4>
+      <label class="chk"><input type="checkbox" id="sfxOn"> подмешивать звуки к треку</label>
+      <div id="sfxBox">
+        <label class="lbl">Громкость <span id="sfxVolV" class="muted"></span></label><input id="sfxVol" type="range" min="0" max="1" step="0.05">
+        <label class="chk"><input type="checkbox" id="sfxTrans"> вжух на переходах</label>
+        <label class="chk"><input type="checkbox" id="sfxEvents"> события виджетов: «дзынь», клики, звонок</label>
+        <label class="chk"><input type="checkbox" id="sfxAcc"> удары на штампах и акцентах</label>
+        <div class="hint">Звуки слышны в превью и сводятся с треком при экспорте (кроме GIF).</div>
+      </div>
     </section>
   </aside>
 </main>
@@ -211,7 +237,8 @@
     <div class="row seg" id="xRes"><button data-v="720">720p</button><button data-v="1080" class="on">1080p</button><button data-v="1440">1440p</button><button data-v="2160">4K</button></div>
     <label class="lbl">Кадров в секунду</label>
     <div class="row seg" id="xFps"><button data-v="30" class="on">30</button><button data-v="60">60 · плавнее, вдвое дольше</button></div>
-    <label class="chk" style="margin-top:12px"><input type="checkbox" id="xDraft"> черновик: 360p, 15 кадров/с — быстро проверить ролик</label>
+    <label class="chk" style="margin-top:12px"><input type="checkbox" id="xGpu" checked> кодировать видеокартой, если есть <span id="xGpuV" class="muted small"></span></label>
+    <label class="chk" style="margin-top:6px"><input type="checkbox" id="xDraft"> черновик: 360p, 15 кадров/с — быстро проверить ролик</label>
     <div id="xInfo" class="muted small" style="margin-top:10px"></div>
     <div class="bar"><i id="xBar"></i></div>
     <div id="xStatus" class="status"></div>
@@ -254,12 +281,34 @@
   </div>
 </div>
 
+<div id="profileModal" class="modal" hidden>
+  <div class="mbox small">
+    <div class="mhead"><b>Профиль артиста</b><div class="grow"></div><button class="ghost" onclick="this.closest('.modal').hidden=true">✕</button></div>
+    <div class="hint">Подставляется во все шаблоны вместо «melhor»: ник в чатах, постах, комментариях и плеере, аватарка там, где «я», логотип — в вотермарку новых проектов.</div>
+    <label class="lbl">Ник</label><input id="pfNick" placeholder="melhor">
+    <label class="lbl">Аватарка</label><div id="pfAvatar" class="imgPick"></div>
+    <label class="lbl">Логотип для вотермарки</label><div id="pfLogo" class="imgPick"></div>
+    <label class="lbl">Фирменный цвет</label><input id="pfColor" type="color" value="#9B6BFF">
+    <button id="pfApply" class="wide">Применить к текущему проекту</button>
+    <button id="pfSave" class="primary wide">Сохранить профиль</button>
+  </div>
+</div>
+<div id="wordMenu" class="pop" hidden>
+  <div class="mhead"><b id="wmWord"></b><div class="grow"></div><button class="ghost small" id="wmClose">✕</button></div>
+  <div class="row"><label class="chk"><input type="checkbox" id="wmColorOn"> цвет</label><input id="wmColor" type="color" value="#FF2D55"></div>
+  <label class="chk"><input type="checkbox" id="wmZoom"> увеличение</label>
+  <label class="chk"><input type="checkbox" id="wmShake"> тряска камеры</label>
+  <div class="row"><span class="muted small">эмодзи</span><input id="wmEmoji" class="emo" placeholder="🔥"></div>
+  <div class="row tight" style="margin-top:8px"><button id="wmReset">сбросить</button><button id="wmOk" class="primary">готово</button></div>
+</div>
+
 <div id="toast"></div>
 <script src="templates.js"></script>
 <script src="spectrum.js"></script>
 <script src="beats.js"></script>
 <script src="mock-api.js"></script>
 <script src="timeline.js"></script>
+<script src="sfx.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

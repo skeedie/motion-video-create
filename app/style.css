@@ -142,3 +142,9 @@ kbd{background:var(--p3);border:1px solid var(--line);border-bottom-width:2px;bo
 #xQList .q span{flex:1}
 #xQList .q.done{border-color:#2f6b45}#xQList .q.err{border-color:var(--red)}#xQList .q.run{border-color:var(--acc)}
 .chk{white-space:normal}.chk input[type=checkbox]{flex:none;width:15px;height:15px;margin:0}
+
+.pop{position:fixed;z-index:70;width:240px;background:var(--p2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;box-shadow:0 20px 50px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:8px}
+.pop[hidden]{display:none}
+h4.sub{margin:22px 0 6px;font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+.bestBtn{flex:1}
+#hookText{min-height:40px}
