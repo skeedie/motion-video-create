@@ -16,7 +16,7 @@ jobs:
       - name: Зависимости
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
-          pip install transformers==4.44.2 onnx==1.16.2 onnxruntime==1.19.2 datasets==2.21.0 pyarrow==14.0.2 soundfile librosa numpy==1.26.4
+          pip install transformers==4.44.2 onnx==1.16.2 onnxruntime==1.19.2 soundfile numpy==1.26.4
       - name: Экспорт wav2vec2-base-960h (Apache-2.0) в ONNX int8
         run: |
           cat > export.py <<'EOF'
@@ -33,16 +33,16 @@ jobs:
           quantize_dynamic('w2v.onnx', 'model.int8.onnx', weight_type=QuantType.QUInt8, op_types_to_quantize=['MatMul', 'Gemm'])
           voc = p.tokenizer.get_vocab(); json.dump(voc, open('vocab.json', 'w'))
           inv = {v: k for k, v in voc.items()}
-          from datasets import load_dataset
-          ds = load_dataset('hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation')
+          import urllib.request, soundfile as sf
+          urllib.request.urlretrieve('https://download.pytorch.org/torchaudio/tutorial-assets/Lab41-SRI-VOiCES-src-sp0307-ch127535-sg0042.wav', 'test.wav')
           s = ort.InferenceSession('model.int8.onnx'); rep = []
-          for i in range(3):
-              a = np.asarray(ds[i]['audio']['array'], dtype=np.float32); a = (a - a.mean()) / np.sqrt(a.var() + 1e-7)
-              lp = s.run(None, {'input': a[None]})[0][0]; ids = lp.argmax(-1); out = []; pv = -1
-              for t in ids:
-                  if t != pv and t != voc['<pad>']: out.append(inv[int(t)])
-                  pv = t
-              rep.append('REF: ' + ds[i]['text'] + '\nHYP: ' + ''.join(out).replace('|', ' ') + f'\nframes {lp.shape[0]} for {len(a)/16000:.2f}s')
+          a, sr = sf.read('test.wav', dtype='float32'); a = a if a.ndim == 1 else a.mean(1)
+          a = (a - a.mean()) / np.sqrt(a.var() + 1e-7)
+          lp = s.run(None, {'input': a[None]})[0][0]; ids = lp.argmax(-1); out = []; pv = -1
+          for t in ids:
+              if t != pv and t != voc['<pad>']: out.append(inv[int(t)])
+              pv = t
+          rep.append('REF: I HAD THAT CURIOSITY BESIDE ME AT THIS MOMENT\nHYP: ' + ''.join(out).replace('|', ' ') + f'\nsr {sr}, frames {lp.shape[0]} for {len(a)/sr:.2f}s')
           with torch.no_grad():
               x = torch.randn(1, 16000 * 3); ref = Wr(m)(x).numpy()
           d = np.abs(ort.InferenceSession('w2v.onnx').run(None, {'input': x.numpy()})[0] - ref).max()
