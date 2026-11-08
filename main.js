@@ -54,29 +54,29 @@ ipcMain.handle('loadUserPresets', async () => { try { return JSON.parse(fs.readF
 ipcMain.handle('saveUserPresets', async (ev, p) => { fs.writeFileSync(USER_PRESETS(), JSON.stringify(p, null, 1), 'utf8'); return true; });
 
 // ---------- модель синхронизации ----------
+const MODEL_BASE = 'https://github.com/skeedie/motion-video-create/releases/download/model-v1/';
+async function download(url, dest, label, progress) {
+  const res = await net.fetch(url);
+  if (!res.ok) throw new Error(`не удалось скачать ${label}: HTTP ${res.status}`);
+  const total = +res.headers.get('content-length') || 0, part = dest + '.part', out = fs.createWriteStream(part), reader = res.body.getReader();
+  let got = 0, last = -1;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      got += value.length; if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
+      const pct = total ? Math.floor(got / total * 100) : Math.floor(got / 1e6);
+      if (pct !== last) { last = pct; progress(total ? `Скачиваю ${label}: ${pct}% (один раз)` : `Скачиваю ${label}: ${pct} МБ (один раз)`); }
+    }
+  } finally { await new Promise(r => out.end(r)); }
+  if (total && got !== total) throw new Error(`загрузка ${label} прервалась, попробуйте ещё раз`);
+  fs.renameSync(part, dest);
+}
 async function ensureModel(progress) {
-  const dir = MODEL_DIR();
-  if (fs.existsSync(path.join(dir, 'model.int8.onnx')) && fs.existsSync(path.join(dir, 'tokens.txt'))) return dir;
+  const dir = MODEL_DIR(), onnx = path.join(dir, 'model.int8.onnx'), tok = path.join(dir, 'tokens.txt');
+  if (fs.existsSync(onnx) && fs.existsSync(tok)) return dir;
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(app.getPath('userData'), 'giga-ctc.tar.bz2');
-  progress('Скачиваю модель синхронизации (≈240 МБ, один раз)…');
-  const res = await net.fetch(A.MODEL_URL);
-  if (!res.ok) throw new Error('не удалось скачать модель: HTTP ' + res.status);
-  const total = +res.headers.get('content-length') || 0, out = fs.createWriteStream(tmp), reader = res.body.getReader();
-  let got = 0, lastPct = -1;
-  for (;;) {
-    const { done, value } = await reader.read(); if (done) break;
-    got += value.length; if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
-    const pct = total ? Math.floor(got / total * 100) : 0; if (pct !== lastPct) { lastPct = pct; progress(`Скачиваю модель синхронизации: ${pct}% (один раз)`); }
-  }
-  await new Promise(r => out.end(r));
-  progress('Распаковываю модель…');
-  await new Promise((resolve, reject) => {
-    const p = spawn('tar', ['-xjf', tmp, '-C', dir, '--strip-components=1'], { windowsHide: true }); let err = '';
-    p.stderr.on('data', d => err += d); p.on('error', reject); p.on('close', c => c === 0 ? resolve() : reject(new Error('распаковка: ' + err)));
-  });
-  try { fs.unlinkSync(tmp); } catch (e) {}
-  if (!fs.existsSync(path.join(dir, 'model.int8.onnx'))) throw new Error('в архиве модели нет model.int8.onnx');
+  if (!fs.existsSync(tok)) await download(MODEL_BASE + 'tokens.txt', tok, 'словарь модели', progress);
+  if (!fs.existsSync(onnx)) await download(MODEL_BASE + 'model.int8.onnx', onnx, 'модель синхронизации (≈230 МБ)', progress);
   return dir;
 }
 let ortSession = null;

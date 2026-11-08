@@ -1,0 +1,25 @@
+name: Модель синхронизации
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/model.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Скачать и распаковать GigaAM-v2 CTC
+        run: |
+          curl -sSL -o m.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-ctc-giga-am-v2-russian-2025-04-19.tar.bz2
+          mkdir m && tar xjf m.tar.bz2 -C m --strip-components=1 && ls -la m
+      - name: Релиз с файлами модели
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: model-v1
+          name: Модель синхронизации (служебный релиз)
+          body: "Файлы модели GigaAM-v2 CTC (MIT) для синхронизации слов. Программа скачивает их сама при первом запуске."
+          files: |
+            m/model.int8.onnx
+            m/tokens.txt
