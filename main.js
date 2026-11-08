@@ -44,7 +44,8 @@ function createWindow() {
   mainWin.on('close', e => {
     if (mainWin.__canClose) return;
     e.preventDefault();
-    mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true').then(ok => { if (ok) { mainWin.__canClose = true; mainWin.close(); } }).catch(() => { mainWin.__canClose = true; mainWin.close(); });
+    const done = () => { if (mainWin && !mainWin.isDestroyed()) { mainWin.__canClose = true; mainWin.close(); } };
+    Promise.race([mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true'), new Promise(r => setTimeout(() => r(true), 1500))]).then(done, done);
   });
 }
 
@@ -61,6 +62,8 @@ app.whenReady().then(() => {
   createWindow();
 });
 app.on('window-all-closed', () => app.quit());
+app.on('before-quit', () => { cancelFlag = true; BrowserWindow.getAllWindows().forEach(w => { if (w !== mainWin) try { w.destroy(); } catch (e) {} }); });
+app.on('will-quit', () => { setTimeout(() => process.exit(0), 2000).unref(); });
 
 // видео и картинки для фона: отдаём файл с поддержкой Range (перемотка видео)
 const MEDIA_EXT = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
@@ -216,8 +219,10 @@ handle('installUpdate', async (ev, info) => {
   const dest = path.join(os.tmpdir(), `LyricStudio-Setup-${info.version}.exe`);
   await download(info.setup.url, dest, 'обновление', progress);
   log('запускаю установщик', dest);
-  spawn(dest, [], { detached: true, stdio: 'ignore' }).unref();
-  setTimeout(() => { if (mainWin) mainWin.__canClose = true; app.quit(); }, 700);
+  try { await Promise.race([mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
+  // установщик стартует, когда эта программа уже полностью закрылась
+  spawn('cmd.exe', ['/d', '/c', `ping 127.0.0.1 -n 3 > nul & start "" "${dest}"`], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  setTimeout(() => app.exit(0), 300);
   return { installer: true };
 });
 handle('openExternal', async (ev, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; });

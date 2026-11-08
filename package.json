@@ -1,7 +1,7 @@
 {
   "name": "lyric-studio",
   "productName": "Lyric Studio",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Редактор lyric-роликов в стиле iOS-интерфейсов",
   "main": "main.js",
   "author": "melhor",
@@ -21,11 +21,46 @@
   "build": {
     "appId": "com.melhor.lyricstudio",
     "productName": "Lyric Studio",
-    "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "preload.js", "align.js", "separate.js", "app/**/*"],
-    "asarUnpack": ["node_modules/ffmpeg-static/**", "node_modules/onnxruntime-node/**"],
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }], "icon": "build/icon.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "artifactName": "LyricStudio-Setup-${version}.exe" },
-    "portable": { "artifactName": "LyricStudio-Portable-${version}.exe" }
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "align.js",
+      "separate.js",
+      "app/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/onnxruntime-node/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "LyricStudio-Setup-${version}.exe",
+      "include": "build/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "LyricStudio-Portable-${version}.exe"
+    }
   }
 }
