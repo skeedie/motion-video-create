@@ -14,25 +14,47 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Кэш зависимостей (не зависеть от сбоев GitHub при каждой сборке)
+      - name: Кэш зависимостей
         id: deps
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: deps-win-${{ hashFiles('package.json') }}
+      - name: Кэш загрузок Electron и сборщика
+        uses: actions/cache/restore@v4
         with:
           path: |
-            node_modules
             ~\AppData\Local\electron\Cache
             ~\AppData\Local\electron-builder\Cache
-          key: deps-win-${{ hashFiles('package.json') }}
+          key: dl-win-${{ hashFiles('package.json') }}
+          restore-keys: dl-win-
       - name: Установка зависимостей (с повтором при сбоях сети)
         if: steps.deps.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set +e
           for i in 1 2 3 4 5 6 7 8 9 10; do npm install --no-audit --no-fund && exit 0; echo "попытка $i не удалась, жду 90 с"; sleep 90; done; exit 1
-      - name: Сборка .exe через electron-builder
-        run: npx electron-builder --win --publish never
+      - name: Сохранить кэш зависимостей
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: deps-win-${{ hashFiles('package.json') }}
+      - name: Сборка .exe (с повтором при сбоях сети)
+        shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: |
+          set +e
+          for i in 1 2 3 4 5 6 7 8; do npx electron-builder --win --publish never && exit 0; echo "попытка $i не удалась, жду 60 с"; sleep 60; done; exit 1
+      - name: Сохранить кэш загрузок
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: dl-win-${{ hashFiles('package.json') }}-${{ github.run_id }}
       - name: Файлы сборки
         uses: actions/upload-artifact@v4
         with:
