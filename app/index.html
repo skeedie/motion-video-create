@@ -47,7 +47,8 @@
     <section data-pane="track">
       <label class="lbl">Трек</label>
       <div class="row"><button id="bAudio">Выбрать файл…</button><span id="audioName" class="muted ell">не выбран</span></div>
-      <label class="lbl">Текст песни <span class="muted">— одна строка = одна строка на экране</span></label>
+      <div class="row tight" id="bpmRow" style="margin-top:6px"><span class="muted small">Темп</span><input id="bpmIn" type="number" step="0.1" min="40" max="240" style="width:74px" placeholder="—" title="Темп трека в ударах в минуту. Определяется сам; если ошибся — впишите свой или простучите"><span id="bpmMode" class="muted small">авто</span><div class="grow"></div><button class="small" id="bpmHalf" title="Вдвое медленнее">÷2</button><button class="small" id="bpmDbl" title="Вдвое быстрее">×2</button><button class="small" id="bpmTap" title="Нажимайте в такт музыке 4–8 раз">простучать</button><button class="small ghost" id="bpmAutoBtn" title="Определить темп заново">авто</button></div>
+      <div class="row tight" style="margin-top:8px"><label class="lbl" style="flex:1;margin:0">Текст песни <span class="muted">— одна строка = одна строка на экране</span></label><button id="bRecog" class="small" title="Нейросеть сама расслышит слова, разобьёт их на строки по тактам и сразу расставит по времени">распознать с трека</button></div>
       <textarea id="lyrics" rows="12" placeholder="села батарейка&#10;нужен energizer{энерджайзер}, бро&#10;…"></textarea>
       <div class="hint">Подсказка: латиницу и цифры можно подсказать в фигурных скобках — <code>love{лав}</code>, <code>1:0{одинноль}</code>. Скобки на экран не попадут.</div>
       <label class="lbl">Где искать текст в треке (сек)</label>
@@ -56,6 +57,9 @@
       <div class="hint" id="alVocHint" hidden>Нейросеть уберёт бит перед синхронизацией — точнее на громком минусе, но дольше: примерно минута на минуту трека. Укажите отрезок выше, чтобы не обрабатывать весь трек.</div>
       <button id="bAlign" class="primary wide">Синхронизировать слова</button>
       <div id="alignStatus" class="status"></div>
+      <label class="lbl">Появление слов</label>
+      <select id="quant"><option value="0">точно как спето</option><option value="2">подтягивать к 1/8 бита</option><option value="4">подтягивать к 1/16 бита</option></select>
+      <div class="hint">Слово, спетое чуть раньше или позже удара, появляется ровно в долю — текст «стучит» в такт. Сдвиг не больше 60 мс, тайминги в проекте не меняются.</div>
       <label class="lbl">Строк в сцене (для авторазбивки)</label>
       <div class="row seg" id="perScene"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="3">3</button></div>
       <label class="chk" style="margin-top:8px"><input type="checkbox" id="autoSmart" checked> подбирать шаблоны по словам строки</label>
@@ -83,7 +87,7 @@
     <div id="tlBar">
       <span class="muted small">Таймлайн</span>
       <label class="chk small" title="Слова прилипают к битам при перетаскивании (Alt — временно выключить)"><input type="checkbox" id="snapBeats" checked> магнит к битам</label>
-      <span id="bpmLabel" class="muted small"></span>
+      <span id="bpmLabel" class="muted small" style="cursor:pointer" title="Изменить темп"></span>
       <div class="grow"></div>
       <span class="muted small">Ctrl+колесо — масштаб · Shift+перетаскивание — сдвинуть строку</span>
       <button id="tlFit" class="ghost small">весь ролик</button>
@@ -341,7 +345,7 @@
 <div id="batchModal" class="modal" hidden>
   <div class="mbox">
     <div class="mhead"><b>Пакетная обработка треков</b><div class="grow"></div><button id="bmClose" class="ghost">✕</button></div>
-    <div class="hint">Каждый трек: синхронизация → умная обрезка → сцены (с подбором по словам) → авто-акценты → экспорт в текущем стиле, эффектах и звуках. Рядом с видео сохраняется проект .lsp, его можно открыть и поправить.</div>
+    <div class="hint">Каждый трек: синхронизация (или распознавание текста, если поле пустое) → умная обрезка → сцены (с подбором по словам) → авто-акценты → экспорт в текущем стиле, эффектах и звуках. Рядом с видео сохраняется проект .lsp, его можно открыть и поправить.</div>
     <div class="row tight"><button id="bmAdd">+ треки…</button><span class="muted small">Форматы:</span><label class="chk small"><input type="checkbox" class="bmF" value="9:16" checked> 9:16</label><label class="chk small"><input type="checkbox" class="bmF" value="1:1"> 1:1</label><label class="chk small"><input type="checkbox" class="bmF" value="16:9"> 16:9</label>
       <select id="bmRes" style="width:auto"><option value="720">720p</option><option value="1080" selected>1080p</option></select><label class="chk small"><input type="checkbox" id="bmAcc" checked> авто-акценты</label></div>
     <div id="bmList"></div>

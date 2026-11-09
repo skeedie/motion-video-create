@@ -312,24 +312,29 @@ async function vocalsFile(audioPath, from, to, progress) {
   const out = path.join(os.tmpdir(), `lyric-vocals-${Date.now()}.wav`); SEP.writeWav(out, v, 44100);
   log(`вокал отделён за ${((Date.now() - t0) / 1000).toFixed(1)} с`); return { file: out, offset: a || 0 };
 }
-handle('align', async (ev, args) => {
+// синхронизация готового текста (align) и распознавание текста с трека (transcribe) идут одним путём
+async function runModel(ev, args, what) {
   const progress = t => send(ev, 'progress:align', t), en = args.lang === 'en';
   let audioPath = args.audioPath, from = args.from, to = args.to, offset = null, tmp = null;
   if (args.vocals) { const r = await vocalsFile(args.audioPath, args.from, args.to, progress); tmp = audioPath = r.file; offset = r.offset; from = null; to = null; }
+  const fn = what === 'transcribe' ? A.transcribe : A.align;
   try {
     if (en) {
       const dir = await ensureEn(progress), { ort, s } = await getSession(path.join(dir, 'model.int8.onnx'));
       const runRaw = async x => { const out = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', x, [1, x.length]) }); const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] }; };
-      return await A.align({ ffmpeg: FFMPEG, modelDir: dir, audioPath, lyrics: args.lyrics, from, to, offset, lang: 'en', runRaw, progress });
+      return await fn({ ffmpeg: FFMPEG, modelDir: dir, audioPath, lyrics: args.lyrics, from, to, offset, lang: 'en', runRaw, progress });
     }
     const dir = await ensureModel(progress), { ort, s } = await getSession(path.join(dir, 'model.int8.onnx'));
     const runChunk = async (feats, T) => {
       const out = await s.run({ features: new ort.Tensor('float32', feats, [1, 64, T]), feature_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(T)]), [1]) });
       const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] };
     };
-    return await A.align({ ffmpeg: FFMPEG, modelDir: dir, audioPath, lyrics: args.lyrics, from, to, offset, runChunk, progress });
+    return await fn({ ffmpeg: FFMPEG, modelDir: dir, audioPath, lyrics: args.lyrics, from, to, offset, runChunk, progress });
   } finally { if (tmp) try { fs.unlinkSync(tmp); } catch (e) {} }
-});
+}
+handle('align', (ev, args) => runModel(ev, args, 'align'));
+handle('transcribe', (ev, args) => runModel(ev, args, 'transcribe'));
+
 
 // ---------- экспорт видео ----------
 // job: { html, W, H, width, fps, start, end, fade, audioPath, name, container: 'mp4'|'mov'|'webm'|'gif', draft, outPath? }

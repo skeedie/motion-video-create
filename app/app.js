@@ -28,9 +28,9 @@ let projPath = null, dirty = false, lastExportPath = null, msel = new Set([0]), 
 const audio = new Audio();
 
 function newProject() {
-  return { version: 2, audioPath: '', audioName: '', lyrics: '', alFrom: '', alTo: '', words: [], duration: 0, perScene: 2, scenes: [], assets: {}, fonts: [],
+  return { version: 2, audioPath: '', audioName: '', lyrics: '', bpm: null, alFrom: '', alTo: '', words: [], duration: 0, perScene: 2, scenes: [], assets: {}, fonts: [],
     style: { preset: 'melhor-lenta', format: '9:16', start: 0, end: 0, artist: PROFILE.nick || 'melhor', title: '', wm: PROFILE.nick || 'melhor', wmOp: 0.2, wmImg: '', hook: '', hookDur: 2.5,
-      sfx: { on: false, vol: 0.7, trans: true, events: true, acc: true }, part: '', partColor: '#ffffff', beat: null, smokeOn: false, smokeA: '#78aa78', smokeB: '#9678c8', lead: null, fade: 1.2, fadeIn: 0.3, fadeCurve: 'smooth', vfade: false, trim: { auto: true, cutOn: true, cutGap: 6 }, cuts: [],
+      sfx: { on: false, vol: 0.7, trans: true, events: true, acc: true }, part: '', partColor: '#ffffff', beat: null, smokeOn: false, smokeA: '#78aa78', smokeB: '#9678c8', lead: null, fade: 1.2, fadeIn: 0.3, fadeCurve: 'smooth', quant: 4, vfade: false, trim: { auto: true, cutOn: true, cutGap: 6 }, cuts: [],
       trans: '', custom: { on: false, theme: 'cards', bgType: 'gradient', bg1: '#F6F5F3', bg2: '#E4DAFF', font: 'Inter Display', accent: '#E10600', tilt: 3 },
       fx: { grain: 0, vhs: 0, aberr: 0, shake: 0 }, bgMedia: null, adlibs: 'chip',
       intro: { on: false, title: '', label: '', dur: 2.5 }, outro: { on: false, text: 'слушай везде', sub: 'ссылка в профиле', dur: 3 } } };
@@ -149,7 +149,8 @@ function buildSpec(forExport, opts = {}) {
     if (st.barSnap && DB && proj.words[sc.a] && sc !== proj.scenes[0]) { const t = proj.words[sc.a].t, c2 = DB.filter(d => d <= t - .05 && d >= t - .9).pop() ?? (beatInfo ? beatInfo.beats.filter(b => b <= t - .05 && b >= t - .55).pop() : null); if (c2 != null) s.t0 = +s2o(c2, activeCuts(...effRange())).toFixed(3); }
     return s;
   });
-  spec.words = proj.words.map(w => { const o = { w: w.w, t: w.t, e: w.e, line: w.line }; if (w.adlib) o.adlib = true; if (w.acc) o.acc = w.acc; return o; });
+  const qT = quantizer(); let prevT = -1;
+  spec.words = proj.words.map(w => { let t = qT(w.t, w.e); if (t < prevT) t = Math.max(w.t, prevT); prevT = t; const o = { w: w.w, t, e: w.e, line: w.line }; if (w.adlib) o.adlib = true; if (w.acc) o.acc = w.acc; return o; });
   spec.adlibs = st.adlibs || 'chip';
   const bm = st.bgMedia; if (bm && (bm.asset || bm.path)) spec.bgMedia = { type: bm.type, src: bm.type === 'video' ? api.mediaUrl(bm.path) : asset('asset:' + bm.asset), blur: +bm.blur || 0, dim: +bm.dim || 0, zoom: bm.zoom ? 0.12 : 0 };
   const lastE = proj.words.length ? proj.words[proj.words.length - 1].e : spec.end, [srcA, srcB] = effRange(), cuts = activeCuts(srcA, srcB), O = t => s2o(t, cuts);
@@ -201,14 +202,46 @@ async function ensureSpectrum() {
   const d = Spectrum.spectrum(cat, sr, 0, len / sr, 30); d.t0 = t0; specCache = { key, data: d };
 }
 function analyzeBeats() {
-  if (!audioData) return; try { beatInfo = Beats.detect(audioData.mono, audioData.sr); $('#bpmLabel').textContent = `≈ ${beatInfo.bpm} BPM · ${beatInfo.beats.length} битов`; } catch (e) { beatInfo = null; api.log('warn', 'биты: ' + e.message); }
-  Timeline.invalidate();
+  if (!audioData) { showBpm(); return; } try { beatInfo = Beats.detect(audioData.mono, audioData.sr, { bpm: proj.bpm || undefined }); } catch (e) { beatInfo = null; api.log('warn', 'биты: ' + e.message); }
+  showBpm(); Timeline.invalidate();
+}
+function showBpm() {
+  $('#bpmLabel').textContent = beatInfo ? `${beatInfo.bpm} BPM · ${beatInfo.beats.length} битов` : '';
+  if (document.activeElement !== $('#bpmIn')) $('#bpmIn').value = beatInfo ? beatInfo.bpm : (proj.bpm || '');
+  $('#bpmMode').textContent = proj.bpm ? 'вручную' : beatInfo ? 'авто' : '';
+}
+// поменять темп: сетка битов пересчитывается под заданный темп, от неё зависят обрезка, смена сцен и «подтягивание» слов
+function setBpm(v) {
+  v = v ? Math.max(40, Math.min(240, +(+v).toFixed(1))) : null; proj.bpm = v; specCache = null; analyzeBeats(); touch();
+  if (proj.words.length && proj.style.trim.auto) autoTrim(true); scheduleRebuild(50);
+  toast(v ? `Темп ${v} BPM — сетка битов пересчитана` : `Темп определён заново: ${beatInfo ? beatInfo.bpm : '—'} BPM`);
+}
+$('#bpmIn').onchange = e => { const v = parseFloat(String(e.target.value).replace(',', '.')); if (v >= 40 && v <= 240) setBpm(v); else showBpm(); };
+$('#bpmHalf').onclick = () => beatInfo && setBpm(beatInfo.bpm / 2 >= 40 ? beatInfo.bpm / 2 : beatInfo.bpm);
+$('#bpmDbl').onclick = () => beatInfo && setBpm(beatInfo.bpm * 2 <= 240 ? beatInfo.bpm * 2 : beatInfo.bpm);
+$('#bpmAutoBtn').onclick = () => setBpm(null);
+$('#bpmLabel').onclick = () => { document.querySelector('#left .tabs button[data-tab=track]').click(); $('#bpmIn').focus(); $('#bpmIn').select(); };
+let taps = [], tapT = null;
+$('#bpmTap').onclick = () => {
+  const now = performance.now(); if (taps.length && now - taps[taps.length - 1] > 2000) taps = []; taps.push(now); taps = taps.slice(-9);
+  if (taps.length >= 2) { const per = (taps[taps.length - 1] - taps[0]) / (taps.length - 1) / 1000; $('#bpmIn').value = (60 / per).toFixed(1); $('#bpmMode').textContent = `простукивание · ${taps.length}`; }
+  clearTimeout(tapT); tapT = setTimeout(() => { if (taps.length >= 4) { const per = (taps[taps.length - 1] - taps[0]) / (taps.length - 1) / 1000; taps = []; setBpm(60 / per); } else { taps = []; showBpm(); } }, 1600);
+};
+// слово, спетое рядом с долей бита, показывается ровно в долю (не дальше 60 мс)
+function quantizer() {
+  const div = +proj.style.quant || 0; if (!div || !beatInfo || beatInfo.beats.length < 4) return t => t; const B = beatInfo.beats;
+  return (t, e) => {
+    let lo = 0, hi = B.length - 1; if (t < B[0] || t > B[hi]) return t;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (B[m] <= t) lo = m; else hi = m; }
+    const step = (B[hi] - B[lo]) / div, k = Math.round((t - B[lo]) / step), g = B[lo] + k * step, tol = Math.min(.06, step * .3);
+    return Math.abs(g - t) <= tol && (e == null || g < e - .04) ? +g.toFixed(3) : t;
+  };
 }
 
 // громкость трека 10 раз в секунду, сглаженная за 2 с и нормированная 0..1 (для «энергии» и лучшего куска)
 function loudness(fps = 10) {
-  if (!beatInfo) return null; const e = beatInfo.env, step = beatInfo.fps / fps, n = Math.floor(e.length / step), raw = new Float32Array(n);
-  for (let i = 0; i < n; i++) { let s = 0; for (let k = 0; k < step; k++) { const v = e[i * step + k] || 0; s += v * v; } raw[i] = Math.sqrt(s / step); }
+  if (!beatInfo) return null; const e = beatInfo.env, step = beatInfo.fps / fps, n = Math.floor(e.length / step), raw = new Float32Array(n), K = Math.max(1, Math.round(step));
+  for (let i = 0; i < n; i++) { let s = 0; const o = Math.floor(i * step); for (let k = 0; k < K; k++) { const v = e[o + k] || 0; s += v * v; } raw[i] = Math.sqrt(s / K); }
   const W = fps, sm = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0, c = 0; for (let k = i - W; k <= i + W; k++) if (k >= 0 && k < n) { s += raw[k]; c++; } sm[i] = s / c; }
   const srt = [...sm].sort((a, b) => a - b), lo = srt[Math.floor(n * .1)] || 0, hi = srt[Math.floor(n * .97)] || 1;
   return { fps, data: sm.map(v => Math.max(0, Math.min(1, (v - lo) / Math.max(1e-6, hi - lo)))) };
@@ -367,6 +400,7 @@ $('#bAlign').onclick = async () => {
   if (!proj.lyrics.trim()) return toast('Вставьте текст песни');
   const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; $('#bAlign').disabled = true;
   try {
+    const g = guessLang(proj.lyrics); if (g && g !== $('#alLang').value) { $('#alLang').value = g; toast(g === 'en' ? 'Текст на английском — включил английскую модель' : 'Текст на русском — включил русскую модель', 3000); }
     proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked;
     const r = await api.align({ audioPath: proj.audioPath, lyrics: proj.lyrics, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals },
       p => { st.textContent = p; });
@@ -376,6 +410,49 @@ $('#bAlign').onclick = async () => {
     fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50);
   } catch (e) { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'синхронизация: ' + (e.message || e)); }
   $('#bAlign').disabled = false;
+};
+// язык по самому тексту: латиница без кириллицы — английский, и наоборот
+function guessLang(text) {
+  const t = String(text).replace(/\{[^}]*\}/g, ''), cy = (t.match(/[а-яё]/gi) || []).length, la = (t.match(/[a-z]/gi) || []).length;
+  return la > 20 && la > cy * 3 ? 'en' : cy > 20 && cy > la * 2 ? 'ru' : null;
+}
+// распознанные слова → строки. Строка ≈ такт (1,4–3,2 с), рвём там, где пауза больше, и по возможности на сильной доле.
+// Подбор разбиения — динамическим программированием по «штрафу» каждой строки.
+function wordsToLines(words) {
+  const n = words.length; if (!n) return '';
+  const D = downbeats(), B = beatInfo ? beatInfo.beats : [], beat = B.length > 1 ? (B[B.length - 1] - B[0]) / (B.length - 1) : .5;
+  // типичная строка речитатива ~1,9 с: берём ближайшее к этому целое число долей (2, 3, 4, 6 или 8)
+  const target = B.length ? [2, 3, 4, 6, 8].map(k => k * beat).sort((a, b) => Math.abs(a - 1.9) - Math.abs(b - 1.9))[0] : 1.9;
+  const nearBar = t => { if (!D.length) return 0; let m = 1e9; for (const d of D) { const x = Math.abs(d - t); if (x < m) m = x; if (d > t + 2) break; } return Math.min(1, m / (beat * .75)); };
+  const cost = (i, j) => { // слова i..j-1
+    const end = w => w.e0 ?? w.e, d = end(words[j - 1]) - words[i].t, k = j - i, g = j < n ? words[j].t - end(words[j - 1]) : 1;
+    let c = 2 * ((d - target) / target) ** 2 - 4 * Math.min(g, .6) + (k === 1 ? 1.5 : 0) + (k > 12 ? 4 : 0) + .6 * nearBar(words[i].t);
+    for (let q = i + 1; q < j; q++) if (words[q].t - end(words[q - 1]) > 1.2) c += 6; // длинная пауза внутри строки — плохо
+    return c;
+  };
+  const best = new Float64Array(n + 1).fill(Infinity), from = new Int32Array(n + 1); best[0] = 0;
+  for (let j = 1; j <= n; j++) for (let i = Math.max(0, j - 16); i < j; i++) { const v = best[i] + cost(i, j); if (v < best[j]) { best[j] = v; from[j] = i; } }
+  const cuts = []; for (let j = n; j > 0; j = from[j]) cuts.push(from[j]); cuts.reverse();
+  let line = -1; words.forEach((w, i) => { if (cuts.includes(i)) line++; w.line = line; });
+  return words.reduce((txt, w, i) => txt + (i ? (w.line !== words[i - 1].line ? '\n' : ' ') : '') + w.w, '');
+}
+$('#bRecog').onclick = async () => {
+  if (!proj.audioPath) return toast('Сначала выберите трек');
+  if ($('#lyrics').value.trim() && !confirm('Заменить текст в поле распознанным с трека?')) return;
+  proj.alFrom = $('#alFrom').value; proj.alTo = $('#alTo').value; proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked;
+  const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; $('#bRecog').disabled = $('#bAlign').disabled = true;
+  try {
+    if (!beatInfo) analyzeBeats();
+    const r = await api.transcribe({ audioPath: proj.audioPath, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals }, p => { st.textContent = p; });
+    const words = r.words.map(w => ({ w: w.w, t: w.t, e: w.e, e0: w.e0, conf: w.conf }));
+    proj.lyrics = wordsToLines(words); $('#lyrics').value = proj.lyrics;
+    proj.words = words.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })); markAdlibs(proj.words);
+    if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
+    const lines = proj.words.length ? proj.words[proj.words.length - 1].line + 1 : 0, unsure = words.filter(w => w.conf < .6).length;
+    st.className = 'status ok'; st.textContent = `Распознано: ${words.length} слов, ${lines} строк${unsure ? `, неуверенно — ${unsure}` : ''}. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления.`;
+    fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50); touch();
+  } catch (e) { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'распознавание: ' + (e.message || e)); }
+  $('#bRecog').disabled = $('#bAlign').disabled = false;
 };
 // сильные доли (начала тактов): из каждых 4 битов берётся тот, где удар в низах сильнее
 function downbeats() {
@@ -714,7 +791,7 @@ function fillStyle() {
   $('#bgOpts').hidden = !(bm && (bm.asset || bm.path)); if (bm) { $('#bgBlur').value = bm.blur || 0; $('#bgBlurV').textContent = (bm.blur || 0) + ' px'; $('#bgDim').value = bm.dim || 0; $('#bgDimV').textContent = Math.round((bm.dim || 0) * 100) + '%'; $('#bgZoom').checked = !!bm.zoom; $('#bgZoomBox').hidden = bm.type === 'video'; }
   const io = st.intro, oo = st.outro; $('#inOn').checked = !!io.on; $('#inTitle').value = io.title || ''; $('#inTitle').placeholder = st.title || (proj.audioName || 'название трека').replace(/\.[^.]+$/, ''); $('#inDur').value = io.dur; $('#inLabel').value = io.label || '';
   $('#barSnap').checked = !!st.barSnap; $('#trAuto').checked = !!st.trim.auto; $('#trCutOn').checked = !!st.trim.cutOn; $('#trGap').value = st.trim.cutGap || 6; renderCuts();
-  $('#fdIn').value = st.fadeIn ?? 0.3; $('#fdOut').value = st.fade ?? 1.2; $('#fdCurve').value = st.fadeCurve || 'smooth'; $('#fdVideo').checked = !!st.vfade;
+  $('#fdIn').value = st.fadeIn ?? 0.3; $('#fdOut').value = st.fade ?? 1.2; $('#fdCurve').value = st.fadeCurve || 'smooth'; $('#quant').value = String(st.quant ?? 0); showBpm(); $('#fdVideo').checked = !!st.vfade;
   $('#fx3d').value = fx.tilt3d || 0; $('#fx3dV').textContent = +fx.tilt3d ? (+fx.tilt3d).toFixed(2) : 'выкл';
   $('#hookText').value = st.hook || ''; $('#hookDur').value = st.hookDur || 2.5; $('#fxEnergy').checked = !!(st.fx && st.fx.energy);
   const sx = st.sfx; $('#sfxOn').checked = !!sx.on; $('#sfxBox').classList.toggle('off', !sx.on); $('#sfxVol').value = sx.vol; $('#sfxVolV').textContent = Math.round(sx.vol * 100) + '%'; $('#sfxTrans').checked = !!sx.trans; $('#sfxEvents').checked = !!sx.events; $('#sfxAcc').checked = !!sx.acc;
@@ -741,6 +818,7 @@ $('#barSnap').onchange = e => { proj.style.barSnap = e.target.checked; if (e.tar
 $('#fdIn').onchange = e => { proj.style.fadeIn = Math.max(0, +e.target.value || 0); scheduleRebuild(50); };
 $('#fdOut').onchange = e => { proj.style.fade = Math.max(0, +e.target.value || 0); scheduleRebuild(50); };
 $('#fdCurve').onchange = e => { proj.style.fadeCurve = e.target.value; touch(); };
+$('#quant').onchange = e => { proj.style.quant = +e.target.value; touch(); scheduleRebuild(50); };
 $('#fdVideo').onchange = e => { proj.style.vfade = e.target.checked; scheduleRebuild(50); };
 $('#hookText').addEventListener('input', e => { proj.style.hook = e.target.value; scheduleRebuild(400); });
 $('#hookDur').addEventListener('change', e => { proj.style.hookDur = +e.target.value; scheduleRebuild(50); });
@@ -851,7 +929,7 @@ function renderAll() { renderStickers(); msel = new Set([...msel].filter(i => i 
 function applyProject(p, path) {
   proj = merge(newProject(), p); proj.style = merge(newProject().style, p.style || {}); proj.assets = p.assets || {}; proj.fonts = p.fonts || [];
   projPath = path || null; $('#alLang').value = proj.lang || 'ru'; $('#alVocals').checked = !!proj.vocals; $('#alVocHint').hidden = !proj.vocals; $('#lyrics').value = proj.lyrics; $('#alFrom').value = proj.alFrom; $('#alTo').value = proj.alTo; $('#audioName').textContent = proj.audioName || 'не выбран';
-  sel = 0; specCache = null; beatInfo = null; $('#bpmLabel').textContent = ''; registerFonts();
+  sel = 0; specCache = null; beatInfo = null; showBpm(); registerFonts();
 }
 async function afterLoad() {
   if (proj.audioPath) { try { await loadAudio({ path: proj.audioPath, name: proj.audioName }); } catch (e) { audio.removeAttribute('src'); audioData = null; toast('Трек не найден по старому пути — выберите его заново', 4500); } }
@@ -1128,7 +1206,7 @@ $('#xFrame').onclick = saveFrame; $('#xCover').onclick = openCovers;
 let batch = [], batchStop = false, batchRunning = false;
 function openBatch() { renderBatch(); $('#batchModal').hidden = false; }
 function renderBatch() {
-  $('#bmList').innerHTML = batch.length ? batch.map((b, i) => `<div class="bi ${b.state || ''}" data-i="${i}"><div class="row"><b class="small" style="flex:1" data-notr>${i + 1}. ${esc(b.name)}</b><span class="muted small">${esc(b.msg || '')}</span><button class="small ghost" data-x="${i}">✕</button></div><textarea placeholder="текст песни этого трека — одна строка = одна строка на экране">${esc(b.lyrics || '')}</textarea></div>`).join('') : '<div class="muted small">Добавьте треки, затем вставьте текст к каждому.</div>';
+  $('#bmList').innerHTML = batch.length ? batch.map((b, i) => `<div class="bi ${b.state || ''}" data-i="${i}"><div class="row"><b class="small" style="flex:1" data-notr>${i + 1}. ${esc(b.name)}</b><span class="muted small">${esc(b.msg || '')}</span><button class="small ghost" data-x="${i}">✕</button></div><textarea placeholder="текст песни этого трека — одна строка = одна строка на экране; пусто — распознать с трека">${esc(b.lyrics || '')}</textarea></div>`).join('') : '<div class="muted small">Добавьте треки и вставьте текст к каждому — или оставьте поле пустым, тогда текст распознается с трека.</div>';
   $$('#bmList .bi').forEach(el => { const b = batch[+el.dataset.i]; el.querySelector('textarea').oninput = e => b.lyrics = e.target.value; el.querySelector('[data-x]').onclick = () => { if (batchRunning) return; batch.splice(+el.dataset.i, 1); renderBatch(); }; });
 }
 $('#bmAdd').onclick = async () => { const L = await api.pickAudios(); L.forEach(f => batch.push({ path: f.path, name: f.name, lyrics: '' })); renderBatch(); };
@@ -1136,7 +1214,6 @@ $('#bmClose').onclick = () => { if (!batchRunning) $('#batchModal').hidden = tru
 $('#bmStop').onclick = () => { batchStop = true; $('#bmStop').disabled = true; };
 $('#bmGo').onclick = async () => {
   const todo = batch.filter(b => b.state !== 'done'); if (!todo.length) return toast('Нет треков для обработки');
-  if (todo.some(b => !b.lyrics || !b.lyrics.trim())) return toast('У каждого трека должен быть текст');
   const formats = $$('.bmF').filter(x => x.checked).map(x => x.value); if (!formats.length) return toast('Выберите хотя бы один формат');
   const dir = await api.pickFolder(); if (!dir) return;
   const sep = dir.includes('\\') ? '\\' : '/', saved = JSON.stringify(proj), savedPath = projPath, st = $('#bmStatus');
@@ -1147,8 +1224,10 @@ $('#bmGo').onclick = async () => {
       const base = JSON.parse(saved), np = newProject(); np.style = JSON.parse(JSON.stringify(base.style)); Object.assign(np.style, { start: 0, end: 0, title: '', hook: '', cuts: [] }); np.style.intro.title = '';
       np.fonts = base.fonts; np.perScene = base.perScene; np.lang = base.lang; np.vocals = base.vocals; np.assets = {}; const used = JSON.stringify(np.style) + JSON.stringify(np.fonts); for (const id in base.assets) if (used.includes(id)) np.assets[id] = base.assets[id];
       applyProject(np, null); await loadAudio({ path: b.path, name: b.name }); proj.duration = audioData.duration; analyzeBeats();
-      proj.lyrics = b.lyrics; const r = await api.align({ audioPath: b.path, lyrics: b.lyrics, from: null, to: null, lang: proj.lang || 'ru', vocals: !!proj.vocals }, t => { b.msg = t; renderBatch(); });
-      proj.words = r.words; markAdlibs(proj.words); autoTrim(true); autoScenes(); if ($('#bmAcc').checked) autoAccents();
+      // без текста — распознать с трека, с текстом — синхронизировать; язык — по тексту
+      if (b.lyrics && b.lyrics.trim()) { proj.lang = guessLang(b.lyrics) || proj.lang || 'ru'; proj.lyrics = b.lyrics; const r = await api.align({ audioPath: b.path, lyrics: b.lyrics, from: null, to: null, lang: proj.lang, vocals: !!proj.vocals }, t => { b.msg = t; renderBatch(); }); proj.words = r.words; }
+      else { const r = await api.transcribe({ audioPath: b.path, from: null, to: null, lang: proj.lang || 'ru', vocals: !!proj.vocals }, t => { b.msg = t; renderBatch(); }); const ws = r.words.map(w => ({ w: w.w, t: w.t, e: w.e, e0: w.e0 })); proj.lyrics = wordsToLines(ws); proj.words = ws.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })); b.lyrics = proj.lyrics; }
+      markAdlibs(proj.words); autoTrim(true); autoScenes(); if ($('#bmAcc').checked) autoAccents();
       const name = b.name.replace(/\.[^.]+$/, '');
       await api.saveProject(JSON.stringify(proj), name + '.lsp', dir + sep + name + '.lsp');
       await ensureSpectrum();

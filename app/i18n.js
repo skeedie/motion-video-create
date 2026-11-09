@@ -829,6 +829,36 @@ GitHub ответил {} ⇒ GitHub replied {}
 готовый файл не читается: {} ⇒ the finished file cannot be read: {}
 браузер (dev) ⇒ browser (dev)
 English interface ⇒ English interface
+Темп ⇒ Tempo
+Темп трека в ударах в минуту. Определяется сам; если ошибся — впишите свой или простучите ⇒ Track tempo in beats per minute. Detected automatically; if it's wrong, type your own or tap it
+вручную ⇒ manual
+Вдвое медленнее ⇒ Half as fast
+Вдвое быстрее ⇒ Twice as fast
+простучать ⇒ tap
+Нажимайте в такт музыке 4–8 раз ⇒ Tap along with the music 4–8 times
+Определить темп заново ⇒ Detect the tempo again
+простукивание · {} ⇒ tapping · {}
+Изменить темп ⇒ Change tempo
+{} BPM · {} битов ⇒ {} BPM · {} beats
+Темп {} BPM — сетка битов пересчитана ⇒ Tempo {} BPM — beat grid recalculated
+Темп определён заново: {} BPM ⇒ Tempo re-detected: {} BPM
+распознать с трека ⇒ recognise from track
+Нейросеть сама расслышит слова, разобьёт их на строки по тактам и сразу расставит по времени ⇒ The neural net hears the words, splits them into lines by bars and times them right away
+Появление слов ⇒ Word timing
+точно как спето ⇒ exactly as sung
+подтягивать к 1/8 бита ⇒ snap to 1/8 beat
+подтягивать к 1/16 бита ⇒ snap to 1/16 beat
+Слово, спетое чуть раньше или позже удара, появляется ровно в долю — текст «стучит» в такт. Сдвиг не больше 60 мс, тайминги в проекте не меняются. ⇒ A word sung slightly before or after a beat appears exactly on it, so the text hits in time. The shift is at most 60 ms and the project timings are not changed.
+Заменить текст в поле распознанным с трека? ⇒ Replace the lyrics in the box with the ones recognised from the track?
+Распознаю слова… ⇒ Recognising words…
+Распознано: {} слов, {} строк. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления. ⇒ Recognised: {} words, {} lines. The neural net gets slang and names wrong: fix the lyrics in the box and press “Sync words” so the timing follows your fixes.
+Распознано: {} слов, {} строк, неуверенно — {}. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления. ⇒ Recognised: {} words, {} lines, {} uncertain. The neural net gets slang and names wrong: fix the lyrics in the box and press “Sync words” so the timing follows your fixes.
+не удалось расслышать слова — попробуйте «сначала отделить вокал» ⇒ couldn't hear any words — try “separate vocals first”
+Текст на английском — включил английскую модель ⇒ The lyrics are in English — switched to the English model
+Текст на русском — включил русскую модель ⇒ The lyrics are in Russian — switched to the Russian model
+текст песни этого трека — одна строка = одна строка на экране; пусто — распознать с трека ⇒ lyrics for this track — one line = one line on screen; leave empty to recognise from the track
+Добавьте треки и вставьте текст к каждому — или оставьте поле пустым, тогда текст распознается с трека. ⇒ Add tracks and paste lyrics for each — or leave the box empty and the lyrics will be recognised from the track.
+Каждый трек: синхронизация (или распознавание текста, если поле пустое) → умная обрезка → сцены (с подбором по словам) → авто-акценты → экспорт в текущем стиле, эффектах и звуках. Рядом с видео сохраняется проект .lsp, его можно открыть и поправить. ⇒ Each track: sync (or lyric recognition if the box is empty) → smart trim → scenes (matched to the words) → auto accents → export in the current style, effects and sounds. A .lsp project is saved next to each video so you can open and tweak it.
 текст песни этого трека — одна строка = одна строка на экране ⇒ lyrics for this track — one line = one line on screen
 Выше ⇒ Up
 Ниже ⇒ Down

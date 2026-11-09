@@ -130,7 +130,8 @@ function viterbi(lp, T, V, seq, B) {
 }
 
 // Главная функция. opts: {ffmpeg, modelDir, audioPath, lyrics, from, to, offset, lang: 'ru'|'en', runChunk (ru), runRaw (en), progress}
-async function align(opts) {
+// общая часть: звук → вероятности букв по кадрам и словарь модели
+async function acoustic(opts) {
   const P = opts.progress || (() => {}), en = opts.lang === 'en';
   P('Читаю звук…');
   const off = opts.offset != null ? +opts.offset : opts.from != null ? +opts.from : 0;
@@ -142,6 +143,37 @@ async function align(opts) {
   let tk, B, c2i = {}, sep = -1;
   if (en) { const voc = JSON.parse(fs.readFileSync(path.join(opts.modelDir, 'vocab.json'), 'utf8')); tk = {}; for (const k in voc) { tk[voc[k]] = k === '|' ? ' ' : k; if (k.length === 1) c2i[k] = voc[k]; } B = voc['<pad>']; sep = voc['|']; }
   else { tk = readTokens(opts.modelDir); B = Math.max(...Object.keys(tk).map(Number)); for (const k in tk) if (tk[k].trim()) c2i[tk[k]] = +k; }
+  return { en, off, dur, lp, T, V, fs_, tk, B, c2i, sep, P };
+}
+// распознавание без текста: жадное CTC-декодирование, слова с временем по кадрам
+function decodeWords(A, GAP = 0.2) {
+  const { lp, T, V, fs_, tk, B, en, off, dur } = A, words = []; let cur = null, pv = -1, sum = 0, cnt = 0;
+  const close = () => { if (cur && cur.w.replace(/'/g, '')) { cur.conf = +Math.exp(sum / Math.max(1, cnt)).toFixed(2); words.push(cur); } cur = null; sum = 0; cnt = 0; };
+  const SPC = +Object.keys(tk).find(k => tk[k] === ' ' || tk[k] === '▁'), SPTH = Math.log(0.12);
+  for (let t = 0; t < T; t++) {
+    let bi = 0, bv = -Infinity; for (let v = 0; v < V; v++) { const q = lp[t * V + v]; if (q > bv) { bv = q; bi = v; } }
+    // пробел между словами в быстром речитативе часто проигрывает «пустому» символу — учитываем и его вероятность
+    if (cur && bi !== SPC && SPC >= 0 && lp[t * V + SPC] > SPTH && bi === B) { close(); pv = SPC; continue; }
+    if (bi !== B && bi !== pv) {
+      const ch = tk[bi];
+      if (ch === ' ' || ch === '▁' || (ch && ch.length !== 1)) close();
+      else if (ch) { if (!cur) cur = { w: '', t: t * fs_, e: 0 }; cur.w += en ? ch.toLowerCase() : ch; cur.e = (t + 1) * fs_; sum += bv; cnt++; }
+    } else if (bi === B && cur && (t * fs_ - cur.e) > GAP) close(); // пауза — слово кончилось, даже если пробел не распознан
+    pv = bi;
+  }
+  close();
+  // e0 — где слово по-настоящему кончилось (паузы нужны для разбивки на строки), e — продлённый конец для показа
+  words.forEach((w, i) => { const nxt = i + 1 < words.length ? words[i + 1].t : dur; w.e0 = +(w.e + off).toFixed(3); w.e = Math.max(w.e, Math.min(nxt - 0.02, w.t + 0.45)); w.t = +(w.t + off).toFixed(3); w.e = +(w.e + off).toFixed(3); });
+  return words;
+}
+async function transcribe(opts) {
+  const A = await acoustic(opts); A.P('Распознаю слова…');
+  const words = decodeWords(A); if (!words.length) throw new Error('не удалось расслышать слова — попробуйте «сначала отделить вокал»');
+  return { words, duration: null };
+}
+
+async function align(opts) {
+  const { en, off, dur, lp, T, V, fs_, tk, B, c2i, sep, P } = await acoustic(opts);
   let greedy = '', pv = -1;
   for (let t = 0; t < T; t++) { let bi = 0, bv = -Infinity; for (let v = 0; v < V; v++) { const q = lp[t * V + v]; if (q > bv) { bv = q; bi = v; } } if (bi !== B && bi !== pv && tk[bi] && tk[bi].length === 1) greedy += tk[bi]; pv = bi; }
   greedy = greedy.replace(/ +/g, ' ').trim();
@@ -160,4 +192,4 @@ async function align(opts) {
   return { words, lines, transcript: greedy, median, duration: null };
 }
 
-module.exports = { align, fbank, viterbi, parseLyrics, spoken, spokenEn, readTokens, logprobs, logprobsRaw, load16k, MODEL_URL };
+module.exports = { align, transcribe, decodeWords, acoustic, fbank, viterbi, parseLyrics, spoken, spokenEn, readTokens, logprobs, logprobsRaw, load16k, MODEL_URL };

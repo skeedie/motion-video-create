@@ -17,6 +17,7 @@ if (!window.api) {
       onProgress && onProgress('Синхронизация (dev-сервер)…');
       const r = await fetch('/__align', { method: 'POST', body: JSON.stringify(args) }); if (!r.ok) throw new Error(await r.text()); return await r.json();
     },
+    async transcribe(args, onProgress) { window.__trArgs = args; onProgress && onProgress('Распознаю слова…'); if (!window.__fakeTranscribe) throw new Error('нет распознавания в dev-режиме'); return { words: JSON.parse(JSON.stringify(window.__fakeTranscribe)) }; },
     async saveProject(json, name, existing) { ls('ls-project', json); return existing || name; },
     async openProject() { const j = ls('ls-project'); return j ? { json: j, path: 'local.lsp' } : null; },
     async recent() { return []; },
