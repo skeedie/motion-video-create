@@ -17,7 +17,10 @@ const FFMPEG = unpacked(require('ffmpeg-static'));
 const UD = (...p) => path.join(app.getPath('userData'), ...p);
 const MODEL_DIR = () => UD('giga-ctc');
 const USER_PRESETS = () => UD('user-presets.json');
-let JOB_HTML = '<html></html>', mainWin = null, cancelFlag = false;
+let JOB_HTML = '<html></html>', mainWin = null, cancelFlag = false, LANG = 'ru';
+// подписи системных диалогов на английском (остальной интерфейс переводит окно)
+const DLG_EN = { 'Сохранить видео': 'Save video', 'Сохранить обложку': 'Save cover', 'Сохранить кадр': 'Save frame', 'Папка для видео': 'Folder for videos', 'Видео MP4': 'MP4 video', 'MOV с прозрачностью (ProRes 4444)': 'MOV with alpha (ProRes 4444)', 'WebM с прозрачностью (VP9)': 'WebM with alpha (VP9)', 'GIF-анимация': 'GIF animation', 'Видеостикер Telegram (WebM)': 'Telegram video sticker (WebM)', 'Выберите трек': 'Choose a track', 'Выберите треки': 'Choose tracks', 'Аудио': 'Audio', 'Картинки': 'Images', 'Шрифты': 'Fonts', 'Проект Lyric Studio': 'Lyric Studio project', 'Сохранить проект': 'Save project', 'Открыть проект': 'Open project', 'Пресет Lyric Studio': 'Lyric Studio preset', 'Проект с треком': 'Project with track', 'Фото и видео': 'Photos and videos', 'Открыть пресет': 'Open preset', 'Сохранить пресет в файл': 'Save preset to file', 'Сохранить проект вместе с треком': 'Save project with track', 'Треки для пакетной обработки': 'Tracks for batch', 'Фон: фото или видео': 'Background: photo or video', 'Выберите картинку': 'Choose an image', 'Выберите шрифт': 'Choose a font' };
+const tr = s => LANG === 'en' && DLG_EN[s] || s;
 
 // ---------- журнал ----------
 let logStream = null;
@@ -32,7 +35,7 @@ function log(...a) {
     logStream.write(line);
   } catch (e) {}
 }
-process.on('uncaughtException', e => log('uncaughtException', e));
+process.on('uncaughtException', e => { log('uncaughtException', e); try { fs.writeFileSync(UD('running.flag'), JSON.stringify({ time: Date.now(), version: app.getVersion(), reason: String(e && e.message || e).slice(0, 200) })); } catch (x) {} });
 process.on('unhandledRejection', e => log('unhandledRejection', e));
 const handle = (name, fn) => ipcMain.handle(name, async (...a) => {
   try { return await fn(...a); } catch (e) { if (e && e.message !== '__cancel') log(`ошибка в ${name}:`, e); throw e; }
@@ -44,7 +47,7 @@ function createWindow() {
   Menu.setApplicationMenu(null);
   mainWin.loadURL('app://app/index.html');
   mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-  mainWin.webContents.on('render-process-gone', (e, d) => log('окно редактора упало:', d));
+  mainWin.webContents.on('render-process-gone', (e, d) => { log('окно редактора упало:', d); try { fs.writeFileSync(RUN_FLAG(), JSON.stringify({ time: Date.now(), version: app.getVersion(), reason: 'окно редактора: ' + (d && d.reason) })); } catch (x) {} if (d && d.reason !== 'clean-exit' && mainWin && !mainWin.isDestroyed()) setTimeout(() => { try { mainWin.reload(); } catch (x) {} }, 500); });
   mainWin.webContents.on('console-message', (e, level, msg, line, src) => { if (level >= 3) log('консоль:', msg, src ? `(${path.basename(src)}:${line})` : ''); });
   mainWin.on('close', e => {
     if (mainWin.__canClose) return;
@@ -54,7 +57,15 @@ function createWindow() {
   });
 }
 
+// флаг «программа работает»: если при следующем запуске он остался — прошлый сеанс завершился аварийно
+const RUN_FLAG = () => UD('running.flag');
+let LAST_CRASH = null;
+function markClean() { try { fs.unlinkSync(RUN_FLAG()); } catch (e) {} }
 app.whenReady().then(() => {
+  try { if (fs.existsSync(RUN_FLAG())) { const f = JSON.parse(fs.readFileSync(RUN_FLAG(), 'utf8') || '{}');
+    // другая версия — значит, программу закрыл установщик обновления, это не сбой
+    if (!f.version || f.version === app.getVersion()) { LAST_CRASH = { time: f.time || 0, version: f.version || '', reason: f.reason || '' }; log('прошлый запуск завершился аварийно', LAST_CRASH); } } } catch (e) { LAST_CRASH = { time: 0, version: '', reason: '' }; }
+  try { fs.writeFileSync(RUN_FLAG(), JSON.stringify({ time: Date.now(), version: app.getVersion() })); } catch (e) {}
   log(`запуск ${app.getVersion()} · ${process.platform} ${os.release()} · electron ${process.versions.electron}`);
   protocol.handle('app', req => {
     const u = new URL(req.url);
@@ -68,7 +79,7 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { cancelFlag = true; BrowserWindow.getAllWindows().forEach(w => { if (w !== mainWin) try { w.destroy(); } catch (e) {} }); });
-app.on('will-quit', () => { killChildren(); setTimeout(() => process.exit(0), 2000).unref(); });
+app.on('will-quit', () => { markClean(); killChildren(); setTimeout(() => process.exit(0), 2000).unref(); });
 process.on('exit', killChildren);
 
 // видео и картинки для фона: отдаём файл с поддержкой Range (перемотка видео)
@@ -85,7 +96,7 @@ function serveMedia(p, req) {
   return new Response(stream(0, size - 1), { headers: { 'content-type': type, 'content-length': String(size), 'accept-ranges': 'bytes' } });
 }
 handle('pickMedia', async () => {
-  const r = await dialog.showOpenDialog(mainWin, { title: 'Фон: фото или видео', properties: ['openFile'], filters: [{ name: 'Фото и видео', extensions: Object.keys(MEDIA_EXT) }] });
+  const r = await dialog.showOpenDialog(mainWin, { title: tr('Фон: фото или видео'), properties: ['openFile'], filters: [{ name: tr('Фото и видео'), extensions: Object.keys(MEDIA_EXT) }] });
   if (r.canceled || !r.filePaths[0]) return null;
   const p = r.filePaths[0], ext = path.extname(p).slice(1).toLowerCase(), kind = MEDIA_EXT[ext].startsWith('video') ? 'video' : 'image';
   return { kind, path: p, name: path.basename(p), data: kind === 'image' ? toAB(fs.readFileSync(p)) : null };
@@ -96,14 +107,18 @@ const writeAtomic = (f, data) => { fs.writeFileSync(f + '.tmp', data); fs.rename
 
 // ---------- файлы ----------
 handle('pickAudio', async () => {
-  const r = await dialog.showOpenDialog(mainWin, { title: 'Выберите трек', properties: ['openFile'], filters: [{ name: 'Аудио', extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'mp4', 'mov'] }] });
+  const r = await dialog.showOpenDialog(mainWin, { title: tr('Выберите трек'), properties: ['openFile'], filters: [{ name: tr('Аудио'), extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'mp4', 'mov'] }] });
   if (r.canceled || !r.filePaths[0]) return null;
   const p = r.filePaths[0];
   return { path: p, name: path.basename(p), data: toAB(fs.readFileSync(p)) };
 });
 handle('readFile', async (ev, p) => toAB(fs.readFileSync(p)));
+handle('pickAudios', async () => {
+  const r = await dialog.showOpenDialog(mainWin, { title: tr('Треки для пакетной обработки'), properties: ['openFile', 'multiSelections'], filters: [{ name: tr('Аудио'), extensions: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'] }] });
+  if (r.canceled) return []; return r.filePaths.map(p => ({ path: p, name: path.basename(p) }));
+});
 const pickBinary = async (title, name, extensions) => {
-  const r = await dialog.showOpenDialog(mainWin, { title, properties: ['openFile'], filters: [{ name, extensions }] });
+  const r = await dialog.showOpenDialog(mainWin, { title: tr(title), properties: ['openFile'], filters: [{ name: tr(name), extensions }] });
   if (r.canceled || !r.filePaths[0]) return null;
   const p = r.filePaths[0]; return { name: path.basename(p), ext: path.extname(p).slice(1).toLowerCase(), data: toAB(fs.readFileSync(p)) };
 };
@@ -140,13 +155,13 @@ function readBundle(fp) {
   fs.closeSync(fd); return JSON.stringify(proj);
 }
 handle('saveBundle', async (ev, json, name) => {
-  const r = await dialog.showSaveDialog(mainWin, { title: 'Сохранить проект вместе с треком', defaultPath: name, filters: [{ name: 'Проект с треком', extensions: ['lspz'] }] });
+  const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить проект вместе с треком'), defaultPath: name, filters: [{ name: tr('Проект с треком'), extensions: ['lspz'] }] });
   if (r.canceled || !r.filePath) return null; writeBundle(r.filePath, json); pushRecent(r.filePath); return r.filePath;
 });
 handle('saveProject', async (ev, json, name, existing) => {
   let fp = existing && fs.existsSync(path.dirname(existing)) ? existing : null;
   if (!fp) {
-    const r = await dialog.showSaveDialog(mainWin, { title: 'Сохранить проект', defaultPath: name, filters: [{ name: 'Проект Lyric Studio', extensions: ['lsp'] }] });
+    const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить проект'), defaultPath: name, filters: [{ name: tr('Проект Lyric Studio'), extensions: ['lsp'] }] });
     if (r.canceled || !r.filePath) return null; fp = r.filePath;
   }
   if (/\.lspz$/i.test(fp)) writeBundle(fp, json); else writeAtomic(fp, json); pushRecent(fp); return fp;
@@ -154,7 +169,7 @@ handle('saveProject', async (ev, json, name, existing) => {
 handle('openProject', async (ev, given) => {
   let fp = given;
   if (!fp) {
-    const r = await dialog.showOpenDialog(mainWin, { title: 'Открыть проект', properties: ['openFile'], filters: [{ name: 'Проект Lyric Studio', extensions: ['lsp', 'lspz', 'json'] }] });
+    const r = await dialog.showOpenDialog(mainWin, { title: tr('Открыть проект'), properties: ['openFile'], filters: [{ name: tr('Проект Lyric Studio'), extensions: ['lsp', 'lspz', 'json'] }] });
     if (r.canceled || !r.filePaths[0]) return null; fp = r.filePaths[0];
   }
   const json = /\.lspz$/i.test(fp) ? readBundle(fp) : fs.readFileSync(fp, 'utf8'); pushRecent(fp); return { json, path: fp };
@@ -174,11 +189,11 @@ const USER_TPL = () => UD('user-templates.json');
 handle('loadUserTemplates', async () => { try { return JSON.parse(fs.readFileSync(USER_TPL(), 'utf8')); } catch (e) { return {}; } });
 handle('saveUserTemplates', async (ev, p) => { writeAtomic(USER_TPL(), JSON.stringify(p)); return true; });
 handle('exportPreset', async (ev, json, name) => {
-  const r = await dialog.showSaveDialog(mainWin, { title: 'Сохранить пресет в файл', defaultPath: name + '.lspreset', filters: [{ name: 'Пресет Lyric Studio', extensions: ['lspreset'] }] });
+  const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить пресет в файл'), defaultPath: name + '.lspreset', filters: [{ name: tr('Пресет Lyric Studio'), extensions: ['lspreset'] }] });
   if (r.canceled || !r.filePath) return null; fs.writeFileSync(r.filePath, json, 'utf8'); return r.filePath;
 });
 handle('importPreset', async () => {
-  const r = await dialog.showOpenDialog(mainWin, { title: 'Открыть пресет', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Пресет Lyric Studio', extensions: ['lspreset', 'json'] }] });
+  const r = await dialog.showOpenDialog(mainWin, { title: tr('Открыть пресет'), properties: ['openFile', 'multiSelections'], filters: [{ name: tr('Пресет Lyric Studio'), extensions: ['lspreset', 'json'] }] });
   if (r.canceled || !r.filePaths.length) return null;
   return r.filePaths.map(p => ({ name: path.basename(p).replace(/\.(lspreset|json)$/i, ''), json: fs.readFileSync(p, 'utf8') }));
 });
@@ -196,6 +211,8 @@ handle('copyReport', async (ev, extra) => {
     extra ? 'Состояние: ' + extra : '', '--- журнал (последние строки) ---', tail].join('\n');
   clipboard.writeText(txt); return txt.length;
 });
+handle('lastCrash', async () => { const c = LAST_CRASH; LAST_CRASH = null; return c; });
+handle('setLang', async (ev, l) => { LANG = l === 'en' ? 'en' : 'ru'; return true; });
 handle('openLogFolder', async () => { shell.openPath(app.getPath('userData')); return true; });
 
 // ---------- обновления ----------
@@ -228,7 +245,7 @@ handle('installUpdate', async (ev, info) => {
   try { await Promise.race([mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
   // установщик стартует, когда эта программа уже полностью закрылась
   spawn('cmd.exe', ['/d', '/c', `ping 127.0.0.1 -n 3 > nul & start "" "${dest}"`], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-  setTimeout(() => { killChildren(); app.exit(0); }, 300);
+  setTimeout(() => { markClean(); killChildren(); app.exit(0); }, 300);
   return { installer: true };
 });
 handle('openExternal', async (ev, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; });
@@ -317,7 +334,7 @@ handle('align', async (ev, args) => {
 // ---------- экспорт видео ----------
 // job: { html, W, H, width, fps, start, end, fade, audioPath, name, container: 'mp4'|'mov'|'webm'|'gif', draft, outPath? }
 // Кадры рендерятся параллельно в нескольких скрытых окнах, каждое пишет свой кусок; куски склеиваются без перекодирования и сводятся со звуком.
-const SEG = { mp4: 'mp4', mov: 'mov', webm: 'mov', gif: 'mp4' };
+const SEG = { mp4: 'mp4', mov: 'mov', webm: 'mov', gif: 'mp4', sticker: 'mov' };
 let GPU = undefined;
 async function detectGpu() {
   if (GPU !== undefined) return GPU; GPU = null;
@@ -330,27 +347,37 @@ handle('gpuInfo', async () => await detectGpu());
 const GPU_ARGS = { h264_nvenc: ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', '19', '-b:v', '0', '-pix_fmt', 'yuv420p'], h264_qsv: ['-c:v', 'h264_qsv', '-global_quality', '20', '-pix_fmt', 'nv12'], h264_amf: ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', '18', '-qp_p', '20', '-pix_fmt', 'yuv420p'] };
 function segCodec(job, outW, outH) {
   if (job.container === 'mp4' && job.gpuEnc && GPU_ARGS[job.gpuEnc]) return GPU_ARGS[job.gpuEnc];
-  if (job.container === 'mov' || job.container === 'webm') return ['-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', '-vendor', 'apl0'];
+  if (job.container === 'mov' || job.container === 'webm' || job.container === 'sticker') return ['-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', '-vendor', 'apl0'];
   if (job.container === 'gif') return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '12', '-pix_fmt', 'yuv420p'];
   return ['-c:v', 'libx264', '-preset', job.draft ? 'ultrafast' : outH * outW > 2.2e6 ? 'faster' : 'veryfast', '-crf', job.draft ? '28' : '18', '-pix_fmt', 'yuv420p'];
 }
 function segArgs(job, inW, inH, outW, outH, out) {
-  const alpha = job.container === 'mov' || job.container === 'webm', fps = String(job.fps);
+  const alpha = job.container === 'mov' || job.container === 'webm' || job.container === 'sticker', fps = String(job.fps);
   const input = alpha ? ['-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', `${inW}x${inH}`, '-framerate', fps, '-i', '-'] : ['-f', 'image2pipe', '-framerate', fps, '-c:v', 'mjpeg', '-i', '-'];
   return ['-v', 'error', '-y', ...input, '-vf', `scale=${outW}:${outH}:flags=${job.draft ? 'bilinear' : 'lanczos'}`, ...segCodec(job, outW, outH), '-r', fps, out];
 }
+// звук ролика: куски трека без вырезанных проигрышей (склейка с микро-затуханием, без щелчков) → затухание на входе/выходе → звуковые эффекты
+const CURVE = { smooth: 'qsin', linear: 'tri', fast: 'exp', soft: 'log' };
+function audioGraph(job, dur) {
+  const segs = [], cuts = (job.cuts || []).filter(c => c.b > job.start && c.a < job.end).sort((x, y) => x.a - y.a); let pos = job.start;
+  for (const c of cuts) { if (c.a > pos) segs.push([pos, c.a]); pos = Math.max(pos, c.b); } if (job.end > pos) segs.push([pos, job.end]);
+  const f = [], cv = CURVE[job.fadeCurve] || 'qsin';
+  segs.forEach(([a, b], i) => { const L = b - a, m = Math.min(0.012, L / 4); f.push(`[1:a]atrim=start=${a.toFixed(3)}:end=${b.toFixed(3)},asetpts=PTS-STARTPTS${segs.length > 1 ? `,afade=t=in:d=${m.toFixed(3)},afade=t=out:st=${(L - m).toFixed(3)}:d=${m.toFixed(3)}` : ''}[s${i}]`); });
+  f.push(segs.length > 1 ? `${segs.map((_, i) => `[s${i}]`).join('')}concat=n=${segs.length}:v=0:a=1[cat]` : `[s0]anull[cat]`);
+  const fi = Math.min(+job.fadeIn || 0, dur / 3), fo = Math.min(job.fadeOut != null ? +job.fadeOut : (job.fade || 0.4), dur / 3), fx = [];
+  if (fi > 0) fx.push(`afade=t=in:st=0:d=${fi.toFixed(3)}:curve=${cv}`); if (fo > 0) fx.push(`afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}:curve=${cv}`);
+  f.push(`[cat]${fx.length ? fx.join(',') : 'anull'}[m]`);
+  if (job.sfxPath) f.push(`[2:a]volume=${(+job.sfxVol || .7).toFixed(2)}${fo > 0 ? `,afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}` : ''}[s]`, `[m][s]amix=inputs=2:duration=first:normalize=0[a]`);
+  else f.push('[m]anull[a]');
+  return f.join(';');
+}
 function finalArgs(job, list, out, outW) {
-  const dur = job.end - job.start, fade = Math.min(job.fade || 0.4, dur / 3), af = ['-af', `afade=t=out:st=${(dur - fade).toFixed(3)}:d=${fade.toFixed(3)}`];
-  const vin = ['-f', 'concat', '-safe', '0', '-i', list], ain = ['-ss', String(job.start), '-t', String(dur), '-i', job.audioPath];
+  const dur = job.outDur || (job.end - job.start), vin = ['-f', 'concat', '-safe', '0', '-i', list];
   if (job.container === 'gif') return ['-v', 'error', '-y', ...vin, '-vf', `fps=${Math.min(job.fps, 20)},scale=${Math.min(outW, 720)}:-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a`, '-loop', '0', out];
+  if (job.container === 'sticker') return ['-v', 'error', '-y', ...vin, '-t', String(Math.min(3, dur)), '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-b:v', '0', '-crf', String(job.crf || 36), '-deadline', 'good', '-cpu-used', '4', '-row-mt', '1', '-an', '-r', String(Math.min(30, job.fps)), out];
   const v = job.container === 'webm' ? ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-b:v', '0', '-crf', '30', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-auto-alt-ref', '0'] : ['-c:v', 'copy'];
   const a = job.container === 'webm' ? ['-c:a', 'libopus', '-b:a', '160k'] : ['-c:a', 'aac', '-b:a', job.draft ? '128k' : job.container === 'mov' ? '256k' : '192k'];
-  const tail = ['-shortest', ...(job.container === 'mp4' ? ['-movflags', '+faststart'] : []), out];
-  if (job.sfxPath) {
-    const fd = `afade=t=out:st=${(dur - fade).toFixed(3)}:d=${fade.toFixed(3)}`;
-    return ['-v', 'error', '-y', ...vin, ...ain, '-i', job.sfxPath, '-filter_complex', `[1:a]${fd}[m];[2:a]volume=${(+job.sfxVol || .7).toFixed(2)},${fd}[s];[m][s]amix=inputs=2:duration=first:normalize=0[a]`, '-map', '0:v', '-map', '[a]', ...v, ...a, ...tail];
-  }
-  return ['-v', 'error', '-y', ...vin, ...ain, '-map', '0:v', '-map', '1:a', ...v, ...a, ...af, ...tail];
+  return ['-v', 'error', '-y', ...vin, '-i', job.audioPath, ...(job.sfxPath ? ['-i', job.sfxPath] : []), '-filter_complex', audioGraph(job, dur), '-map', '0:v', '-map', '[a]', ...v, ...a, '-t', dur.toFixed(3), ...(job.container === 'mp4' ? ['-movflags', '+faststart'] : []), out];
 }
 const runFF = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let e = ''; p.stderr.on('data', d => e += d); p.on('error', rej); p.on('close', c => c === 0 ? res() : rej(new Error('ffmpeg: ' + e.slice(0, 500)))); });
 async function openEngine(outW, outH, zoom, alpha) {
@@ -365,12 +392,12 @@ async function openEngine(outW, outH, zoom, alpha) {
 }
 const frameAt = (win, t) => win.webContents.executeJavaScript(`(window.seekAsync||((t)=>Promise.resolve(seek(t))))(${t.toFixed(5)}).then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))`);
 async function renderSegment(job, k0, k1, file, dims, onFrame) {
-  const { outW, outH, zoom } = dims, alpha = job.container === 'mov' || job.container === 'webm', q = job.draft ? 70 : 92;
+  const { outW, outH, zoom } = dims, alpha = job.container === 'mov' || job.container === 'webm' || job.container === 'sticker', q = job.draft ? 70 : 92;
   const win = await openEngine(outW, outH, zoom, alpha); let ff = null, ffErr = '', done = null;
   try {
     for (let i = k0; i < k1; i++) {
       if (cancelFlag) throw new Error('__cancel');
-      await frameAt(win, job.start + i / job.fps); win.webContents.invalidate();
+      await frameAt(win, (job.vStart ?? job.start) + i / job.fps); win.webContents.invalidate();
       const img = await win.webContents.capturePage();
       if (!ff) {
         const sz = img.getSize(); if (!sz.width || !sz.height) throw new Error('пустой кадр при захвате окна');
@@ -387,30 +414,69 @@ async function renderSegment(job, k0, k1, file, dims, onFrame) {
   finally { win.destroy(); }
 }
 handle('cancelExport', () => { cancelFlag = true; });
-handle('pickFolder', async () => { const r = await dialog.showOpenDialog(mainWin, { title: 'Папка для видео', properties: ['openDirectory', 'createDirectory'] }); return r.canceled ? null : r.filePaths[0]; });
-const FNAME = { mp4: 'Видео MP4', mov: 'MOV с прозрачностью (ProRes 4444)', webm: 'WebM с прозрачностью (VP9)', gif: 'GIF-анимация' };
+
+// ---------- проверка системы ----------
+const runFFOut = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let o = '', e = ''; p.stdout.on('data', d => o += d); p.stderr.on('data', d => e += d); p.on('error', rej); p.on('close', c => c === 0 ? res(o + e) : rej(new Error(e.slice(0, 300)))); });
+handle('selfTest', async () => {
+  const r = [], add = (group, name, level, text) => r.push({ group, name, level, text: text || '' });
+  const gb = b => (b / 2 ** 30).toFixed(1) + ' ГБ';
+  add('Компьютер', 'Система', 'ok', `${process.platform} ${os.release()} ${os.arch()} · ${os.cpus().length} ядер`);
+  const mem = os.totalmem(); add('Компьютер', 'Память', mem < 6 * 2 ** 30 ? 'warn' : 'ok', `${gb(mem)} всего, свободно ${gb(os.freemem())}` + (mem < 6 * 2 ** 30 ? ' — 4K и отделение вокала могут идти медленно' : ''));
+  try { const st = fs.statfsSync(os.tmpdir()), free = st.bavail * st.bsize; add('Компьютер', 'Место на диске', free < 3 * 2 ** 30 ? 'warn' : 'ok', `свободно ${gb(free)} во временной папке` + (free < 3 * 2 ** 30 ? ' — для длинного экспорта может не хватить' : '')); } catch (e) {}
+  try { const f = path.join(os.tmpdir(), 'ls-test-' + Date.now()); fs.writeFileSync(f, 'ok'); fs.unlinkSync(f); add('Компьютер', 'Временная папка', 'ok', 'запись работает'); } catch (e) { add('Компьютер', 'Временная папка', 'err', 'не удаётся записать: ' + e.message); }
+  let encs = '';
+  if (!fs.existsSync(FFMPEG)) add('Видео', 'ffmpeg', 'err', 'не найден — переустановите программу');
+  else { try { const v = await runFFOut(['-version']); add('Видео', 'ffmpeg', 'ok', (v.split('\n')[0].match(/version (\S+)/) || [])[1] || 'работает'); encs = await runFFOut(['-hide_banner', '-encoders']); } catch (e) { add('Видео', 'ffmpeg', 'err', 'не запускается: ' + e.message + ' — возможно, его блокирует антивирус'); } }
+  const encList = new Set((encs.match(/^\s*[VAS][.A-Z]{5}\s+(\S+)/gm) || []).map(l => l.trim().split(/\s+/)[1]));
+  if (encs) for (const [e, label] of [['libx264', 'H.264 — MP4'], ['prores_ks', 'ProRes 4444 — MOV с прозрачностью'], ['libvpx-vp9', 'VP9 — WebM и стикеры'], ['gif', 'GIF'], ['aac', 'AAC — звук в MP4'], ['libopus', 'Opus — звук в WebM']]) add('Видео', label, encList.has(e) ? 'ok' : 'err', encList.has(e) ? 'есть' : 'нет в сборке ffmpeg');
+  GPU = undefined; const g = encs ? await detectGpu() : null; add('Видео', 'Кодирование видеокартой', g ? 'ok' : 'warn', g ? `${g.name} (${g.enc})` : 'не найдено — видео кодирует процессор (медленнее, но работает)');
+  try { require('onnxruntime-node'); add('Синхронизация', 'Нейросеть (onnxruntime)', 'ok', 'загружается'); } catch (e) { add('Синхронизация', 'Нейросеть (onnxruntime)', 'err', /Cannot find module/.test(e.message) ? 'не найдена — переустановите программу' : 'не загружается: ' + e.message.split('\n')[0] + ' — установите Microsoft Visual C++ Redistributable'); }
+  const has = (...p) => fs.existsSync(UD(...p));
+  add('Синхронизация', 'Модель для русского', has('giga-ctc', 'model.int8.onnx') ? 'ok' : 'info', has('giga-ctc', 'model.int8.onnx') ? 'скачана' : 'скачается при первой синхронизации (≈230 МБ)');
+  add('Синхронизация', 'Модель для английского', has('w2v-en', 'model.int8.onnx') ? 'ok' : 'info', has('w2v-en', 'model.int8.onnx') ? 'скачана' : 'скачается при первой синхронизации на английском (≈120 МБ)');
+  add('Синхронизация', 'Отделение вокала', has('uvr', SEP.MDX.file) ? 'ok' : 'info', has('uvr', SEP.MDX.file) ? 'модель скачана' : 'модель скачается при первом использовании (≈65 МБ)');
+  try { const res = await Promise.race([net.fetch(`https://api.github.com/repos/${REPO}`, { method: 'HEAD', headers: { 'User-Agent': 'LyricStudio' } }), new Promise((_, j) => setTimeout(() => j(new Error('нет ответа за 6 с')), 6000))]); add('Сеть', 'Доступ к GitHub', res.ok ? 'ok' : 'warn', res.ok ? 'обновления и модели скачиваются' : 'GitHub ответил ' + res.status); }
+  catch (e) { add('Сеть', 'Доступ к GitHub', 'warn', 'нет связи (' + e.message + ') — обновления и модели не скачаются'); }
+  return r;
+});
+// пробный экспорт 3 секунд на тишине: проверяет окна рендера, кодирование и сведение звука
+handle('selfTestExport', async (ev, job) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ls-selftest-')), wav = path.join(tmp, 'silence.wav'), out = path.join(tmp, 'test.' + (job.container === 'mov' ? 'mov' : job.container === 'webm' ? 'webm' : 'mp4'));
+  try {
+    await runFF(['-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String((job.end || 3) + 1), wav]);
+    const t0 = Date.now(); let r = await exportVideoImpl(ev, Object.assign({}, job, { audioPath: wav, outPath: out })), viaCpu = false;
+    if (r && r.retry) { viaCpu = true; r = await exportVideoImpl(ev, Object.assign({}, job, { gpu: false, gpuEnc: undefined, audioPath: wav, outPath: out })); }
+    if (!r || !r.ok) return { ok: false, error: r && r.cancelled ? 'отменено' : 'файл не создан' };
+    const info = await runFFOut(['-hide_banner', '-i', out, '-f', 'null', '-']).catch(e => { throw new Error('готовый файл не читается: ' + e.message); });
+    const dur = info.match(/Duration: (\d+):(\d+):([\d.]+)/), sec = dur ? +dur[1] * 3600 + +dur[2] * 60 + +dur[3] : 0;
+    return { ok: true, seconds: (Date.now() - t0) / 1000, size: fs.statSync(out).size, duration: sec, audio: /Audio:/.test(info), viaCpu, gpu: job.gpuEnc || (GPU && GPU.enc) || null };
+  } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} }
+});
+handle('pickFolder', async () => { const r = await dialog.showOpenDialog(mainWin, { title: tr('Папка для видео'), properties: ['openDirectory', 'createDirectory'] }); return r.canceled ? null : r.filePaths[0]; });
+const FNAME = { mp4: 'Видео MP4', mov: 'MOV с прозрачностью (ProRes 4444)', webm: 'WebM с прозрачностью (VP9)', gif: 'GIF-анимация', sticker: 'Видеостикер Telegram (WebM)' };
 async function exportVideoImpl(ev, job) {
-  const ext = job.container || 'mp4';
+  const cont = job.container || 'mp4', ext = cont === 'sticker' ? 'webm' : cont;
   let out = job.outPath;
-  if (!out) { const r = await dialog.showSaveDialog(mainWin, { title: 'Сохранить видео', defaultPath: (job.name || 'video') + '.' + ext, filters: [{ name: FNAME[ext], extensions: [ext] }] }); if (r.canceled || !r.filePath) return { ok: false }; out = r.filePath; }
+  if (!out) { const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить видео'), defaultPath: (job.name || 'video') + '.' + ext, filters: [{ name: tr(FNAME[cont]), extensions: [ext] }] }); if (r.canceled || !r.filePath) return { ok: false }; out = r.filePath; }
   const progress = (frac, text) => send(ev, 'progress:export', { frac, text });
   cancelFlag = false;
-  const fps = job.fps || 30, outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2, zoom = outW / job.W, n = Math.max(1, Math.round((job.end - job.start) * fps));
+  const fps = job.fps || 30, outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2, zoom = outW / job.W, n = Math.max(1, Math.round((job.outDur || (job.end - job.start)) * fps));
   const cores = os.cpus().length, maxW = outW * outH > 2.2e6 ? 2 : 4, workers = Math.max(1, Math.min(maxW, Math.floor(cores / 3), Math.ceil(n / 60), job.workers || 99));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyric-')), t0 = Date.now(); let doneFrames = 0;
   if (job.gpu && ext === 'mp4') { const g = await detectGpu(); if (g) job.gpuEnc = g.enc; }
-  if (job.sfx && job.sfx.data && ext !== 'gif') { job.sfxPath = path.join(tmp, 'sfx.wav'); fs.writeFileSync(job.sfxPath, Buffer.from(job.sfx.data)); job.sfxVol = job.sfx.vol; }
+  if (job.sfx && job.sfx.data && cont !== 'gif' && cont !== 'sticker') { job.sfxPath = path.join(tmp, 'sfx.wav'); fs.writeFileSync(job.sfxPath, Buffer.from(job.sfx.data)); job.sfxVol = job.sfx.vol; }
   log(`экспорт: ${outW}x${outH} ${fps}fps ${ext}${job.draft ? ' черновик' : ''}, окон: ${workers}${job.gpuEnc ? ', ' + job.gpuEnc : ''}${job.sfxPath ? ', звуки' : ''} → ${out}`);
   JOB_HTML = job.html;
   try {
     progress(0, `Готовлю движок (${workers} ${workers === 1 ? 'окно' : 'окна'})…`);
     const segs = [], per = Math.ceil(n / workers), tick = () => { doneFrames++; if (doneFrames % 5 === 0) { const el = (Date.now() - t0) / 1000, left = el / doneFrames * (n - doneFrames); progress(doneFrames / n * .96, `Кадр ${doneFrames} из ${n} · осталось ~${left > 90 ? Math.ceil(left / 60) + ' мин' : Math.ceil(left) + ' с'}`); } };
     const jobs = [];
-    for (let w = 0; w < workers; w++) { const k0 = w * per, k1 = Math.min(n, k0 + per); if (k1 <= k0) break; const f = path.join(tmp, `seg${w}.${SEG[ext]}`); segs.push(f); jobs.push(renderSegment(job, k0, k1, f, { outW, outH, zoom }, tick)); }
+    for (let w = 0; w < workers; w++) { const k0 = w * per, k1 = Math.min(n, k0 + per); if (k1 <= k0) break; const f = path.join(tmp, `seg${w}.${SEG[cont]}`); segs.push(f); jobs.push(renderSegment(job, k0, k1, f, { outW, outH, zoom }, tick)); }
     const res = await Promise.allSettled(jobs); const bad = res.find(r => r.status === 'rejected'); if (bad) { cancelFlag = true; throw bad.reason; }
-    progress(0.97, ext === 'gif' ? 'Собираю GIF…' : ext === 'webm' ? 'Кодирую WebM со звуком…' : 'Склеиваю видео со звуком…');
+    progress(0.97, cont === 'gif' ? 'Собираю GIF…' : cont === 'sticker' ? 'Кодирую стикер…' : ext === 'webm' ? 'Кодирую WebM со звуком…' : 'Склеиваю видео со звуком…');
     const list = path.join(tmp, 'list.txt'); fs.writeFileSync(list, segs.map(f => `file '${f.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
     await runFF(finalArgs(Object.assign({}, job, { fps }), list, out, outW));
+    if (cont === 'sticker') for (const crf of [44, 52]) { if (fs.statSync(out).size <= 256 * 1024) break; progress(0.98, 'Ужимаю стикер до 256 КБ…'); await runFF(finalArgs(Object.assign({}, job, { fps, crf }), list, out, outW)); }
     log('экспорт готов', ((Date.now() - t0) / 1000).toFixed(1) + ' с');
     progress(1, 'Готово'); return { ok: true, path: out, seconds: (Date.now() - t0) / 1000 };
   } catch (e) {
@@ -425,9 +491,20 @@ handle('exportVideo', async (ev, job) => {
   if (r && r.retry) { send(ev, 'progress:export', { frac: 0, text: 'Видеокарта не справилась — повторяю на процессоре…' }); return await exportVideoImpl(ev, Object.assign({}, job, { gpu: false, gpuEnc: undefined, outPath: r.out })); }
   return r;
 });
+// кадр в PNG без диалога — для вариантов обложки
+handle('renderFrame', async (ev, job) => {
+  const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
+  const win = await openEngine(outW, outH, outW / job.W, false);
+  try { await frameAt(win, job.t); win.webContents.invalidate(); await new Promise(r => setTimeout(r, 150)); const img = await win.webContents.capturePage(); return 'data:image/png;base64,' + img.resize({ width: outW, height: outH }).toPNG().toString('base64'); }
+  finally { win.destroy(); }
+});
+handle('saveImage', async (ev, dataUrl, name) => {
+  const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить обложку'), defaultPath: name + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
+  if (r.canceled || !r.filePath) return null; fs.writeFileSync(r.filePath, Buffer.from(dataUrl.split(',')[1], 'base64')); return r.filePath;
+});
 // один кадр в PNG (кадр из ролика или обложка)
 handle('exportFrame', async (ev, job) => {
-  const r = await dialog.showSaveDialog(mainWin, { title: job.title || 'Сохранить кадр', defaultPath: (job.name || 'кадр') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
+  const r = await dialog.showSaveDialog(mainWin, { title: tr(job.title || 'Сохранить кадр'), defaultPath: (job.name || 'кадр') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
   if (r.canceled || !r.filePath) return { ok: false };
   const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
   const win = await openEngine(outW, outH, outW / job.W, !!job.transparent);

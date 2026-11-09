@@ -239,6 +239,14 @@
     fields: [F('mode', 'Вид', 'circle', 'select', ['circle', 'bars', 'wave']), F('color', 'Цвет', '#9B6BFF', 'color'), F('emoji', 'В центре круга', '🎧', 'emoji'), F('img', 'Обложка в центре', '', 'image'), F('line', 'Показывать строку', true, 'bool')],
     make: (f, c) => ({ widget: { type: 'viz', mode: f.mode, color: f.color, emoji: f.emoji, img: f.img || undefined, line: !!f.line, text: c.all, scale: 1 } }) });
 
+  // ---------- Свой виджет из блоков ----------
+  const SRC = (c, v) => v === '$line' ? c.all : v === '$1' ? (c.part(0, 2) || c.all) : v === '$2' ? (c.part(1, 2) || c.all) : v;
+  add({ id: 'blocks', name: 'Свой виджет из блоков (конструктор)', cat: 'Конструктор', lines: 1,
+    fields: [F('blocks', 'Блоки', [{ type: 'header', title: 'melhor', sub: 'в сети', emoji: '😎' }, { type: 'text', text: '$line', size: 30, weight: 800 }, { type: 'button', label: 'Ответить' }], 'blocks'),
+      F('dark', 'Тёмная карточка', false, 'bool'), F('bg', 'Фон карточки', '#FFFFFF', 'color'), F('accent', 'Акцент (кнопки, пузыри)', '#0A84FF', 'color'), F('width', 'Ширина, px', 460, 'number')],
+    make: (f, c) => ({ widget: { type: 'blocks', dark: !!f.dark, bg: f.dark && f.bg === '#FFFFFF' ? undefined : f.bg, accent: f.accent, width: +f.width || 460, scale: 1.25,
+      blocks: (Array.isArray(f.blocks) ? f.blocks : []).map(b => Object.assign({}, b, { text: SRC(c, b.text), title: SRC(c, b.title), sub: SRC(c, b.sub), label: SRC(c, b.label) })) } }) });
+
   // ---------- Игры ----------
   add({ id: 'pcach', name: 'Ачивка на ПК (всплывашка)', cat: 'Игры', lines: 1,
     fields: [F('label', 'Надпись', 'Достижение разблокировано!'), F('desc', 'Описание', 'Редкое: есть у 0,4% игроков'), F('emoji', 'Значок', '🏆', 'emoji'), F('img', 'Значок-картинка', '', 'image'),

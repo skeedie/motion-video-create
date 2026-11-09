@@ -9,6 +9,9 @@ const inv = (ch, ...a) => ipcRenderer.invoke(ch, ...a);
 contextBridge.exposeInMainWorld('api', {
   pickAudio: () => inv('pickAudio'),
   pickImage: () => inv('pickImage'),
+  pickAudios: () => inv('pickAudios'),
+  renderFrame: j => inv('renderFrame', j),
+  saveImage: (d, n) => inv('saveImage', d, n),
   pickFont: () => inv('pickFont'),
   pickMedia: () => inv('pickMedia'),
   mediaUrl: p => 'app://media/?p=' + encodeURIComponent(p),
@@ -42,5 +45,9 @@ contextBridge.exposeInMainWorld('api', {
   version: () => inv('version'),
   checkUpdate: () => inv('checkUpdate'),
   installUpdate: withProgress('progress:update', info => inv('installUpdate', info)),
-  openExternal: url => inv('openExternal', url)
+  openExternal: url => inv('openExternal', url),
+  selfTest: () => inv('selfTest'),
+  selfTestExport: withProgress('progress:export', j => inv('selfTestExport', j)),
+  lastCrash: () => inv('lastCrash'),
+  setLang: l => inv('setLang', l)
 });

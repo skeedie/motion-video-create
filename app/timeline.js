@@ -36,6 +36,10 @@
     for (let t = Math.ceil(view.t0 / step) * step; t < view.t1; t += step) { const x = Math.round(t2x(t)) + .5; ctx.beginPath(); ctx.moveTo(x, 12); ctx.lineTo(x, HEIGHT); ctx.stroke(); ctx.fillText(Math.floor(t / 60) + ':' + (t % 60).toFixed(step < 1 ? 1 : 0).padStart(step < 1 ? 4 : 2, '0'), x + 3, 10); }
     // отрезок ролика
     const [ra, rb] = H.range(); ctx.fillStyle = 'rgba(0,0,0,.45)'; if (t2x(ra) > 0) ctx.fillRect(0, 12, t2x(ra), HEIGHT); if (t2x(rb) < w) ctx.fillRect(t2x(rb), 12, w - t2x(rb), HEIGHT);
+    // вырезанные проигрыши
+    (H.cuts ? H.cuts() : []).forEach(c => { const x0 = t2x(c.a), x1 = t2x(c.b); if (x1 < 0 || x0 > w) return; ctx.fillStyle = c.on === false ? 'rgba(255,255,255,.04)' : 'rgba(255,80,90,.16)'; ctx.fillRect(x0, 12, x1 - x0, HEIGHT - 12);
+      ctx.strokeStyle = c.on === false ? 'rgba(255,255,255,.15)' : 'rgba(255,90,100,.7)'; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(x0 + .5, 12); ctx.lineTo(x0 + .5, HEIGHT); ctx.moveTo(x1 - .5, 12); ctx.lineTo(x1 - .5, HEIGHT); ctx.stroke(); ctx.setLineDash([]);
+      if (x1 - x0 > 30) { ctx.fillStyle = 'rgba(255,170,175,.9)'; ctx.font = '600 10px Inter, sans-serif'; ctx.fillText('✂ вырезано', x0 + 5, 24); } });
     // волна
     buildPeaks(); const mid = yWave + ROW.wave / 2;
     ctx.fillStyle = '#3B4252'; for (let x = 0; x < peaks.length; x++) { const v = peaks[x] * (ROW.wave / 2 - 2); ctx.fillRect(x, mid - v, 1, v * 2 || 1); }

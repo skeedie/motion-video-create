@@ -148,3 +148,30 @@ kbd{background:var(--p3);border:1px solid var(--line);border-bottom-width:2px;bo
 h4.sub{margin:22px 0 6px;font-size:13px;border-top:1px solid var(--line);padding-top:14px}
 .bestBtn{flex:1}
 #hookText{min-height:40px}
+#cutList{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+#cutList .cut{display:flex;align-items:center;gap:8px;background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12px}
+#cutList .cut span{flex:1}#cutList .cut.off span{opacity:.45;text-decoration:line-through}
+.sub2{margin-top:12px;padding:10px;border:1px dashed var(--line);border-radius:10px}
+#stList{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+#stList .st{background:var(--p2);border:1px solid var(--line);border-radius:9px;padding:6px 8px;display:grid;grid-template-columns:1fr 54px 54px 54px 26px;gap:6px;align-items:center;font-size:12px}
+#stList .st input,#stList .st select{padding:4px 6px;font-size:12px;min-width:0}
+#stList .st .opt{grid-column:1/-1;display:flex;gap:6px;align-items:center}
+.blk{display:flex;flex-direction:column;gap:6px}
+.bk{background:var(--p2);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:5px}
+.bk .bf{display:flex;flex-direction:column;gap:4px}.bk .bf .row{gap:6px}.bk input,.bk select{padding:4px 6px;font-size:12px;min-width:0;flex:1}
+#cvGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:12px}
+#cvGrid .cv{background:var(--p2);border:1px solid var(--line);border-radius:12px;padding:8px;display:flex;flex-direction:column;gap:8px;align-items:center}
+#cvGrid .cv img{width:100%;border-radius:8px;background:#000;min-height:120px}
+#bmList{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto;margin:10px 0}
+#bmList .bi{background:var(--p2);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px}
+#bmList .bi textarea{min-height:70px;font-size:12px}
+#bmList .bi.done{border-color:#2f6b45}#bmList .bi.err{border-color:var(--red)}#bmList .bi.run{border-color:var(--acc)}
+
+#stRes .stg{margin:10px 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+#stRes .sr{display:flex;gap:10px;align-items:baseline;padding:5px 8px;border-radius:8px;font-size:13px}
+#stRes .sr:nth-child(even){background:var(--p2)}
+#stRes .sr i{font-style:normal;width:16px;flex:none;text-align:center}
+#stRes .sr b{font-weight:500;flex:none;min-width:210px}
+#stRes .sr span{color:var(--mut);font-size:12px}
+#stRes .sr.ok i{color:var(--acc2)}#stRes .sr.warn i{color:#F5B83D}#stRes .sr.err i{color:var(--red)}#stRes .sr.info i{color:#7aa7ff}
+#stRes .sr.err span{color:var(--red)}

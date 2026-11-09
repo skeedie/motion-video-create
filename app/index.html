@@ -19,6 +19,7 @@
   <div class="dd"><button id="bNew" class="ghost">Новый ▾</button><div id="newMenu" class="menu" hidden>
     <button data-act="blank">Пустой проект</button>
     <button data-act="style">Новый в стиле текущего</button>
+    <button data-act="batch">Пакет треков…</button>
   </div></div>
   <div class="dd"><button id="bOpen" class="ghost">Открыть ▾</button><div id="openMenu" class="menu" hidden></div></div>
   <div class="dd"><button id="bSave" class="ghost" title="Ctrl+S">Сохранить ▾</button><div id="saveMenu" class="menu" hidden>
@@ -29,6 +30,8 @@
   <div class="dd"><button id="bHelp" class="ghost icon" title="Помощь">?</button><div id="helpMenu" class="menu right" hidden>
     <button data-act="keys">Горячие клавиши</button>
     <button data-act="update">Проверить обновления</button>
+    <button data-act="selftest">Проверка системы…</button>
+    <button data-act="lang" id="langBtn">English interface</button>
     <button data-act="report">Скопировать отчёт об ошибке</button>
     <button data-act="logs">Открыть папку с журналом</button>
     <div class="mver muted small" id="verLabel"></div>
@@ -61,7 +64,7 @@
     </section>
     <section data-pane="words" hidden>
       <div class="hint">Клик по слову — перейти к нему. Сдвигайте время кнопками ± или перетаскивайте слова на таймлайне под превью.</div>
-      <div id="wordList"></div>
+      <div id="wordList" data-notr></div>
     </section>
   </aside>
 
@@ -73,6 +76,7 @@
       <span id="tCur" class="mono">0:00.0</span>
       <input id="scrub" type="range" min="0" max="1000" value="0">
       <span id="tEnd" class="mono">0:00.0</span>
+      <span id="dragHint" class="muted small" title="На паузе карточки и стикеры в превью можно двигать мышкой">✥ тащите в превью</span>
       <label class="chk small" title="Упрощает дым, частицы и размытия в превью — для слабых компьютеров. На экспорт не влияет"><input type="checkbox" id="litePrev"> лёгкое превью</label>
       <select id="safeSel" title="Безопасные зоны площадки"><option value="">зоны: нет</option><option value="reels">зоны Reels</option><option value="tiktok">зоны TikTok</option><option value="shorts">зоны Shorts</option></select>
     </div>
@@ -85,7 +89,7 @@
       <button id="tlFit" class="ghost small">весь ролик</button>
     </div>
     <div id="tlWrap"><canvas id="timeline"></canvas></div>
-    <div id="sceneStrip"></div>
+    <div id="sceneStrip" data-notr></div>
   </section>
 
   <!-- ПРАВАЯ ПАНЕЛЬ: стиль и сцены -->
@@ -95,7 +99,7 @@
       <div id="sceneEmpty" class="muted pad">Добавьте трек и текст, затем нажмите «Синхронизировать слова» — сцены создадутся сами.</div>
       <div id="sceneEditor" hidden>
         <div class="sceneHead">
-          <div><div class="muted small" id="seIdx"></div><div id="seText" class="seText"></div></div>
+          <div><div class="muted small" id="seIdx"></div><div id="seText" data-notr class="seText"></div></div>
         </div>
         <div class="row tight">
           <button id="seMergePrev" title="Объединить с предыдущей">⇤ объединить</button>
@@ -113,6 +117,11 @@
         <label class="lbl">Шаблон</label>
         <button id="seTpl" class="tplBtn"><img id="seTplImg" alt=""><span id="seTplName"></span><span class="muted">сменить…</span></button>
         <div id="seFields"></div>
+        <div class="sub2">
+          <div class="row"><b class="small" style="flex:1">Вторая карточка в этой сцене</b><button id="se2Add" class="small">добавить…</button><button id="se2Del" class="small ghost" hidden>убрать</button></div>
+          <div id="se2Box" hidden><button id="se2Tpl" class="tplBtn"><img id="se2TplImg" alt=""><span id="se2TplName"></span><span class="muted">сменить…</span></button><div id="se2Fields"></div>
+          <div class="hint">Первая карточка показывает первую половину строк сцены, вторая — вторую. Карточки можно двигать мышкой прямо в превью.</div></div>
+        </div>
         <details class="more" open id="seAccents">
           <summary>Акценты</summary>
           <div id="seCardOnly">
@@ -124,6 +133,10 @@
           <div style="flex:1"><label class="lbl">Камера</label><select id="seCam"><option value="">нет</option><option value="in">наезд</option><option value="out">отъезд</option><option value="left">панорама ←</option><option value="right">панорама →</option><option value="sway">покачивание</option></select></div></div>
           <div id="seScaleBox"><label class="lbl">Размер карточки <span id="seScaleV" class="muted"></span></label><input id="seScale" type="range" min="0.6" max="1.7" step="0.01"></div>
         </details>
+        <h4 class="sub">Стикеры и надписи</h4>
+        <div class="hint">Появляются в момент, где стоит курсор, на 2,5 с. Двигайте их мышкой в превью, колесо мыши — размер.</div>
+        <div class="row tight"><button id="stEmoji">+ эмодзи</button><button id="stText">+ надпись</button><button id="stImage">+ картинка</button></div>
+        <div id="stList"></div>
         <div class="row tight" style="margin-top:14px"><button id="bAutoAcc" title="Подпрыгивание на сильной доле и эмодзи по смыслу — во всех сценах, где акценты не заданы">авто-акценты для всех сцен</button><button id="bClearAcc">убрать авто-акценты</button></div>
         <div class="hint">Двойной клик по слову на таймлайне — свой акцент для этого слова: цвет, увеличение, тряска, эмодзи.</div>
       </div>
@@ -137,6 +150,19 @@
       <label class="lbl">Отрезок ролика (сек)</label>
       <div class="row"><input id="vStart" type="number" step="0.05"><span class="muted">—</span><input id="vEnd" type="number" step="0.05"><button id="bAutoRange" title="По тексту">по тексту</button></div>
       <div class="row tight" style="margin-top:6px"><span class="muted small" style="flex:none">лучший кусок:</span><button class="bestBtn" data-v="15">15 с</button><button class="bestBtn" data-v="30">30 с</button><button class="bestBtn" data-v="60">60 с</button></div>
+      <details class="more" id="trimBox" open>
+        <summary>Обрезка и затухание звука</summary>
+        <label class="chk"><input type="checkbox" id="trAuto"> обрезать автоматически после синхронизации</label>
+        <div class="hint">Начало — на сильной доле за такт до первой строки, конец — на сильной доле после последней. Резы попадают в такт, поэтому склейки не слышно.</div>
+        <button id="trNow" class="wide">Обрезать сейчас по тактам</button>
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="trCutOn"> вырезать проигрыши без текста длиннее <input id="trGap" type="number" min="2" max="40" step="1" style="width:54px;padding:3px 6px"> с</label>
+        <div id="cutList"></div>
+        <div class="row" style="margin-top:6px"><div style="flex:1"><label class="lbl">Нарастание в начале, с</label><input id="fdIn" type="number" step="0.1" min="0" max="6"></div><div style="flex:1"><label class="lbl">Затухание в конце, с</label><input id="fdOut" type="number" step="0.1" min="0" max="8"></div></div>
+        <label class="lbl">Кривая затухания</label>
+        <select id="fdCurve"><option value="smooth">плавная</option><option value="linear">линейная</option><option value="soft">мягкая — тише к самому концу</option><option value="fast">быстрая — сразу заметно тише</option></select>
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="fdVideo"> затемнять видео вместе со звуком</label>
+        <label class="chk" style="margin-top:8px"><input type="checkbox" id="barSnap"> менять сцены точно на сильную долю такта</label>
+      </details>
       <label class="lbl">Текст-крючок сверху (первые секунды, пусто — без)</label>
       <div class="row"><textarea id="hookText" rows="2" placeholder="когда проснулся и понял…"></textarea><input id="hookDur" type="number" step="0.5" min="1" max="8" style="max-width:62px" title="секунд"></div>
       <label class="lbl">Артист (плашка «сейчас играет»; пусто — без плашки)</label>
@@ -168,6 +194,7 @@
       <details class="more" id="ctor">
         <summary>Конструктор стиля</summary>
         <label class="chk"><input type="checkbox" id="cOn"> свой стиль поверх пресета</label>
+        <button id="cCover" class="wide" style="margin-top:6px">Цвета с обложки трека…</button>
         <div id="cBox">
           <label class="lbl">Основа</label>
           <select id="cTheme"><option value="cards">светлые карточки</option><option value="dark">тёмная</option><option value="soft">мягкая, текст под карточкой</option><option value="sky">небо, объёмный текст</option><option value="phone">всё в телефоне</option><option value="kinetic">постер, крупные слова</option></select>
@@ -189,7 +216,7 @@
         <label class="lbl">Пульс фона под бит <span id="beatV" class="muted"></span></label><input id="beat" type="range" min="0" max="0.06" step="0.005">
         <label class="lbl">Цвет дыма</label><div class="row"><input id="smokeA" type="color" value="#78aa78"><input id="smokeB" type="color" value="#9678c8"><label class="chk"><input type="checkbox" id="smokeOn"> свой цвет</label></div>
         <label class="lbl">Опережение сцены (сек)</label><input id="lead" type="number" step="0.01">
-        <label class="lbl">Затухание звука в конце (сек)</label><input id="fade" type="number" step="0.05">
+
       </details>
       <label class="lbl">Сохранить текущий стиль как свой пресет</label><div class="row"><input id="presetName" placeholder="название"><button id="bSavePreset">Сохранить</button></div>
     </section>
@@ -200,6 +227,7 @@
       <label class="lbl">Хроматическая аберрация <span id="fxAberrV" class="muted"></span></label><input id="fxAberr" type="range" min="0" max="8" step="0.25">
       <label class="lbl">Тряска камеры на бит <span id="fxShakeV" class="muted"></span></label><input id="fxShake" type="range" min="0" max="1.5" step="0.05">
       <div class="hint">Тряска и аберрация реагируют на биты трека. Если битов не видно на таймлайне, они берутся из громкости баса.</div>
+      <label class="lbl">3D-наклон карточек (в «телефоне» — блик на экране) <span id="fx3dV" class="muted"></span></label><input id="fx3d" type="range" min="0" max="1.2" step="0.05">
       <label class="chk" style="margin-top:12px"><input type="checkbox" id="fxEnergy"> сильнее на припеве и дропе, тише в спокойных местах</label>
       <button id="fxReset" class="wide">Сбросить эффекты</button>
       <h4 class="sub">Звуковые эффекты</h4>
@@ -231,7 +259,7 @@
     <label class="lbl">Куда</label>
     <div class="row seg wrap" id="xPlat"><button data-v="" class="on">Свой</button><button data-v="reels">Reels</button><button data-v="tiktok">TikTok</button><button data-v="shorts">Shorts</button></div>
     <label class="lbl">Файл</label>
-    <div class="row seg" id="xCont"><button data-v="mp4" class="on">MP4</button><button data-v="mov">MOV · прозрачный фон</button><button data-v="webm">WebM · прозрачный</button><button data-v="gif">GIF</button></div>
+    <div class="row seg" id="xCont"><button data-v="mp4" class="on">MP4</button><button data-v="mov">MOV · прозрачный фон</button><button data-v="webm">WebM · прозрачный</button><button data-v="gif">GIF</button><button data-v="sticker" title="WebM 512 px, прозрачный, до 3 секунд от курсора">стикер TG</button></div>
     <div id="xAlphaHint" class="hint" hidden>Фон, дым и частицы не попадут в видео — останутся карточки, текст и эмодзи. MOV (ProRes 4444) открывают Premiere, DaVinci, Final Cut и CapCut на компьютере; файл большой.</div>
     <label class="lbl">Качество</label>
     <div class="row seg" id="xRes"><button data-v="720">720p</button><button data-v="1080" class="on">1080p</button><button data-v="1440">1440p</button><button data-v="2160">4K</button></div>
@@ -251,7 +279,7 @@
     </details>
     <details class="more">
       <summary>Картинки: кадр и обложка</summary>
-      <div class="row tight"><button id="xFrame">Текущий кадр в PNG</button><button id="xCover">Обложка в PNG</button></div>
+      <div class="row tight"><button id="xFrame">Текущий кадр в PNG</button><button id="xCover">Обложка: 3 варианта…</button></div>
       <div class="hint">Обложка — название трека крупно и ник артиста в текущем стиле, размер по формату ролика.</div>
     </details>
   </div>
@@ -293,8 +321,36 @@
     <button id="pfSave" class="primary wide">Сохранить профиль</button>
   </div>
 </div>
+<div id="stModal" class="modal" hidden>
+  <div class="mbox" style="width:min(640px,92vw)">
+    <div class="mhead"><b>Проверка системы</b><div class="grow"></div><button class="ghost" id="stClose">✕</button></div>
+    <p class="muted small" style="margin:0 0 8px">Проверяет, всё ли нужное для работы есть на этом компьютере, и делает пробный экспорт 3 секунд со звуковыми эффектами. Ничего не сохраняется.</p>
+    <div id="stRes"></div>
+    <div class="bar"><i id="stBar"></i></div>
+    <div class="status" id="stStatus"></div>
+    <div class="row tight" style="margin-top:10px"><button id="stRun" class="primary">Проверить снова</button><button id="stCopy">Скопировать результат</button><div class="grow"></div><button id="stLogs" class="ghost">Папка с журналом</button></div>
+  </div>
+</div>
+<div id="coverModal" class="modal" hidden>
+  <div class="mbox">
+    <div class="mhead"><b>Обложка — выберите вариант</b><div class="grow"></div><button class="ghost" onclick="this.closest('.modal').hidden=true">✕</button></div>
+    <div class="row"><span class="muted small">Название</span><input id="cvTitle" style="flex:1"><span class="muted small">Артист</span><input id="cvArtist" style="width:160px"><button id="cvRedo">обновить</button></div>
+    <div id="cvGrid"></div>
+  </div>
+</div>
+<div id="batchModal" class="modal" hidden>
+  <div class="mbox">
+    <div class="mhead"><b>Пакетная обработка треков</b><div class="grow"></div><button id="bmClose" class="ghost">✕</button></div>
+    <div class="hint">Каждый трек: синхронизация → умная обрезка → сцены (с подбором по словам) → авто-акценты → экспорт в текущем стиле, эффектах и звуках. Рядом с видео сохраняется проект .lsp, его можно открыть и поправить.</div>
+    <div class="row tight"><button id="bmAdd">+ треки…</button><span class="muted small">Форматы:</span><label class="chk small"><input type="checkbox" class="bmF" value="9:16" checked> 9:16</label><label class="chk small"><input type="checkbox" class="bmF" value="1:1"> 1:1</label><label class="chk small"><input type="checkbox" class="bmF" value="16:9"> 16:9</label>
+      <select id="bmRes" style="width:auto"><option value="720">720p</option><option value="1080" selected>1080p</option></select><label class="chk small"><input type="checkbox" id="bmAcc" checked> авто-акценты</label></div>
+    <div id="bmList"></div>
+    <div class="bar"><i id="bmBar"></i></div><div id="bmStatus" class="status"></div>
+    <div class="row"><button id="bmGo" class="primary wide">Выбрать папку и запустить</button><button id="bmStop" hidden>Остановить после текущего</button></div>
+  </div>
+</div>
 <div id="wordMenu" class="pop" hidden>
-  <div class="mhead"><b id="wmWord"></b><div class="grow"></div><button class="ghost small" id="wmClose">✕</button></div>
+  <div class="mhead"><b id="wmWord" data-notr></b><div class="grow"></div><button class="ghost small" id="wmClose">✕</button></div>
   <div class="row"><label class="chk"><input type="checkbox" id="wmColorOn"> цвет</label><input id="wmColor" type="color" value="#FF2D55"></div>
   <label class="chk"><input type="checkbox" id="wmZoom"> увеличение</label>
   <label class="chk"><input type="checkbox" id="wmShake"> тряска камеры</label>
@@ -307,6 +363,7 @@
 <script src="spectrum.js"></script>
 <script src="beats.js"></script>
 <script src="mock-api.js"></script>
+<script src="i18n.js"></script>
 <script src="timeline.js"></script>
 <script src="sfx.js"></script>
 <script src="app.js"></script>
