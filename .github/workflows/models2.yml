@@ -38,7 +38,16 @@ jobs:
           # HT-Demucs FT, вокал (MIT)
           fs = list_repo_files('StemSplitio/htdemucs-ft-vocals-onnx')
           grab('StemSplitio/htdemucs-ft-vocals-onnx', [f for f in fs if f.endswith(('.onnx', '.json', '.md', '.data'))], {f: 'htdemucs_ft_vocals_' + f.split('/')[-1] for f in fs})
+          # BiRefNet lite с динамическим размером входа (onnx-community) — пробуем несколько известных репозиториев
+          for repo in ['onnx-community/BiRefNet_lite-ONNX', 'onnx-community/BiRefNet_lite', 'onnx-community/BiRefNet-ONNX']:
+              try:
+                  fs = list_repo_files(repo)
+                  grab(repo, [f for f in fs if f.endswith('.onnx') and ('fp16' in f or 'quantized' in f or f.endswith('/model.onnx') or f == 'model.onnx')] + [f for f in fs if f.endswith('config.json')][:2],
+                       {f: repo.split('/')[1].lower() + '__' + f.replace('/', '_') for f in fs})
+              except Exception as e: print('нет репозитория', repo, e)
           PY
+          # Beat This! small — экспорт из beat-this-rs (MIT): проверенный вход spectrogram [1,T,128]
+          curl -sSL -o out/beat_this_small.onnx https://github.com/danigb/beat-this-rs/raw/main/models/beat_this_small.onnx
           # BiRefNet lite (MIT) — зеркало из релиза rembg
           curl -sSL -o out/birefnet_lite.onnx https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx
           ls -la out info
