@@ -1,7 +1,7 @@
 {
   "name": "lyric-studio",
   "productName": "Lyric Studio",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Редактор lyric-роликов в стиле iOS-интерфейсов",
   "main": "main.js",
   "author": "melhor",
@@ -62,6 +62,17 @@
     },
     "portable": {
       "artifactName": "LyricStudio-Portable-${version}.exe"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "lsp",
+          "lspz"
+        ],
+        "name": "Lyric Studio Project",
+        "description": "Проект Lyric Studio",
+        "role": "Editor"
+      }
+    ]
   }
 }

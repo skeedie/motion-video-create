@@ -79,27 +79,13 @@ async function ciRun(dir) {
         if (fmt === '9:16' && t === .9 && !alpha) { const b = thumb(png.data); if (!small.ref) small.ref = b; else { let d = 0; for (let i = 0; i < b.length; i++) d += Math.abs(b[i] - small.ref[i]); d /= b.length; rep.frames[rep.frames.length - 1].diff720 = +d.toFixed(2); if (d > 6) rep.errors.push(`${name}: картинка отличается от 720p (${d.toFixed(1)})`); } }
       } catch (e) { rep.errors.push(name + ': ' + (e.stack || e.message)); }
     }
-    // диагностика: совпадает ли картинка с тем, что на странице после перемотки (кадр не «застрял»)
-    try {
-      for (const [fmt, width] of [['9:16', 1080], ['16:9', 1920]]) {
-        const job = await mainWin.webContents.executeJavaScript(`window.__ciJob(${JSON.stringify(fmt)})`), outW = width, outH = Math.round(width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
-        const win = await openEngine(outW, outH, outW / job.W, false), wc = win.webContents; let paints = 0; wc.on('paint', () => paints++);
-        const d = { fmt, painting: wc.isPainting(), frameRate: wc.getFrameRate(), shots: [] };
-        for (const t of [.9, 2.4]) {
-          await frameAt(win, t); const dom = await wc.executeJavaScript('(()=>{ const e=document.querySelector(".wslot .wscale"); if(!e) return null; const r=e.getBoundingClientRect(); return [Math.round(r.x),Math.round(r.y),Math.round(r.width)] })()');
-          const p0 = paints; wc.invalidate(); await new Promise(r => setTimeout(r, 150)); const a = await wc.capturePage(); fs.writeFileSync(path.join(dir, `diag-${fmt.replace(':', 'x')}-${t}-a.png`), a.toPNG());
-          const p1 = paints; await new Promise(r => { const tm = setTimeout(r, 1500); wc.once('paint', () => { clearTimeout(tm); r(); }); wc.invalidate(); }); const b = await wc.capturePage(); fs.writeFileSync(path.join(dir, `diag-${fmt.replace(':', 'x')}-${t}-b.png`), b.toPNG());
-          let c = null; try { const dbg = wc.debugger; if (!dbg.isAttached()) dbg.attach('1.3'); const r = await dbg.sendCommand('Page.captureScreenshot', { format: 'png' }); c = Buffer.from(r.data, 'base64'); fs.writeFileSync(path.join(dir, `diag-${fmt.replace(':', 'x')}-${t}-c.png`), c); } catch (e) { d.cdpErr = e.message; }
-          d.shots.push({ t, dom, paintsBefore: p0, paintsAfter150: p1, paintsEnd: paints, a: a.getSize(), b: b.getSize(), c: c ? nativeImage.createFromBuffer(c).getSize() : null });
-        }
-        win.destroy(); (rep.diag = rep.diag || []).push(d);
-      }
-    } catch (e) { rep.errors.push('diag: ' + (e.stack || e.message)); }
     try {
       const job = await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16')`), wav = path.join(dir, 'silence.wav'), out = path.join(dir, 'export-1080.mp4');
       await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '4', wav]);
       const r = await exportVideoImpl({ sender: mainWin.webContents }, { html: job.html, W: job.W, H: job.H, width: 1080, start: 0, end: 3, outDur: 3, cuts: [], fade: .5, fps: 30, container: 'mp4', name: 'ci', loud: true, audioPath: wav, outPath: out });
       rep.export = r; if (r && r.ok) { await runFF(['-v', 'error', '-y', '-ss', '0.9', '-i', out, '-frames:v', '1', path.join(dir, 'export-1080-0.9.png')]); rep.probe = await runFFOut(['-hide_banner', '-i', out, '-f', 'null', '-']).then(x => (x.match(/Stream #0:0.*/) || [''])[0]);
+        await runFF(['-v', 'error', '-y', '-ss', '2.4', '-i', out, '-frames:v', '1', path.join(dir, 'export-1080-2.4.png')]);
+        { const x = thumb(fs.readFileSync(path.join(dir, 'export-1080-2.4.png'))), y = thumb(fs.readFileSync(path.join(dir, 'frame-9x16-1080-2.4.png'))); let d = 0; for (let i = 0; i < x.length; i++) d += Math.abs(x[i] - y[i]); d /= x.length; rep.exportDiff24 = +d.toFixed(2); if (d > 8) rep.errors.push(`кадр 2.4 с ролика отличается от отдельного кадра (${d.toFixed(1)})`); }
         const b = thumb(fs.readFileSync(path.join(dir, 'export-1080-0.9.png'))); let d = 0; for (let i = 0; i < b.length; i++) d += Math.abs(b[i] - small.ref[i]); d /= b.length; rep.exportDiff = +d.toFixed(2);
         if (d > 8) rep.errors.push(`кадр готового ролика отличается от контрольного (${d.toFixed(1)})`); if (!/bt709/.test(rep.probe)) rep.errors.push('в ролике нет метки цвета BT.709: ' + rep.probe); }
       else rep.errors.push('экспорт не удался: ' + JSON.stringify(r));
@@ -542,6 +528,13 @@ async function openEngine(outW, outH, zoom, alpha) {
   if (Math.abs(got / want - 1) > 0.02) { win.destroy(); throw new Error(`окно рендера получило размер ${iw}×${ih} вместо формата ${outW}×${outH} — нажмите «?» → «Скопировать отчёт» и пришлите его`); }
   return win;
 }
+// Снимок кадра только после того, как окно его действительно перерисовало. Раньше снимок брался сразу, и в больших
+// размерах (1080p и выше) перерисовка не успевала: в ролик попадал предыдущий кадр — анимации дёргались и «отставали».
+function freshCapture(win) {
+  const wc = win.webContents;
+  return new Promise(res => { let done = false; const fin = () => { if (done) return; done = true; clearTimeout(tm); wc.removeListener('paint', fin); res(); }, tm = setTimeout(fin, 2500); wc.on('paint', fin); wc.invalidate(); })
+    .then(() => wc.capturePage());
+}
 const frameAt = (win, t) => win.webContents.executeJavaScript(`(window.seekAsync||((t)=>Promise.resolve(seek(t))))(${t.toFixed(5)}).then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))`);
 async function renderSegment(job, k0, k1, file, dims, onFrame) {
   const { outW, outH, zoom } = dims, alpha = job.container === 'mov' || job.container === 'webm' || job.container === 'sticker', q = job.draft ? 70 : 92;
@@ -549,8 +542,8 @@ async function renderSegment(job, k0, k1, file, dims, onFrame) {
   try {
     for (let i = k0; i < k1; i++) {
       if (cancelFlag) throw new Error('__cancel');
-      await frameAt(win, (job.vStart ?? job.start) + i / job.fps); win.webContents.invalidate();
-      const img = await win.webContents.capturePage();
+      await frameAt(win, (job.vStart ?? job.start) + i / job.fps);
+      const img = await freshCapture(win);
       if (!ff) {
         const sz = img.getSize(); if (!sz.width || !sz.height) throw new Error('пустой кадр при захвате окна');
         ff = spawn(FFMPEG, segArgs(job, sz.width, sz.height, outW, outH, file), { windowsHide: true }); ff.stderr.on('data', d => ffErr += d); ff.stdin.on('error', () => {});
@@ -722,7 +715,7 @@ handle('exportVideo', async (ev, job) => {
 async function grabFrame(job, outW, outH, t, alpha) {
   const win = await openEngine(outW, outH, outW / job.W, alpha);
   try {
-    await frameAt(win, t); win.webContents.invalidate(); await new Promise(r => setTimeout(r, 150)); const img = await win.webContents.capturePage(), size = img.getSize();
+    await frameAt(win, t); const img = await freshCapture(win), size = img.getSize();
     const info = await win.webContents.executeJavaScript('[innerWidth,innerHeight,devicePixelRatio]').catch(() => null);
     return { data: (size.width === outW && size.height === outH ? img : img.resize({ width: outW, height: outH })).toPNG(), size: [size.width, size.height], info: { inner: info, content: win.getContentSize() } };
   } finally { win.destroy(); }
@@ -730,9 +723,7 @@ async function grabFrame(job, outW, outH, t, alpha) {
 // кадр в PNG без диалога — для вариантов обложки
 handle('renderFrame', async (ev, job) => {
   const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
-  const win = await openEngine(outW, outH, outW / job.W, false);
-  try { await frameAt(win, job.t); win.webContents.invalidate(); await new Promise(r => setTimeout(r, 150)); const img = await win.webContents.capturePage(); return 'data:image/png;base64,' + img.resize({ width: outW, height: outH }).toPNG().toString('base64'); }
-  finally { win.destroy(); }
+  return 'data:image/png;base64,' + (await grabFrame(job, outW, outH, job.t, false)).data.toString('base64');
 });
 handle('saveImage', async (ev, dataUrl, name) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить обложку'), defaultPath: name + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
@@ -743,9 +734,7 @@ handle('exportFrame', async (ev, job) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr(job.title || 'Сохранить кадр'), defaultPath: (job.name || 'кадр') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
   if (r.canceled || !r.filePath) return { ok: false };
   const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
-  const win = await openEngine(outW, outH, outW / job.W, !!job.transparent);
-  try { await frameAt(win, job.t); win.webContents.invalidate(); await new Promise(r => setTimeout(r, 120)); const img = await win.webContents.capturePage(); fs.writeFileSync(r.filePath, img.resize({ width: outW, height: outH }).toPNG()); return { ok: true, path: r.filePath }; }
-  finally { win.destroy(); }
+  fs.writeFileSync(r.filePath, (await grabFrame(job, outW, outH, job.t, !!job.transparent)).data); return { ok: true, path: r.filePath };
 });
 handle('captureRect', async (ev, r) => {
   const img = await mainWin.webContents.capturePage({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
