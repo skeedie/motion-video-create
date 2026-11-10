@@ -69,7 +69,7 @@ async function ciRun(dir) {
     fs.mkdirSync(dir, { recursive: true }); const d = screen.getPrimaryDisplay(); rep.display = { size: d.size, workArea: d.workAreaSize, scale: d.scaleFactor };
     for (let i = 0; i < 300; i++) { if (await mainWin.webContents.executeJavaScript('!!(window.__ls&&window.__ciJob)').catch(() => false)) break; await sleep(100); }
     const small = {}, thumb = png => nativeImage.createFromBuffer(png).resize({ width: 90, height: 160, quality: 'best' }).toBitmap();
-    for (const [fmt, width, t, alpha] of [['9:16', 720, .9], ['9:16', 1080, .9], ['9:16', 1080, 2.4], ['9:16', 1440, .9], ['9:16', 2160, .9], ['16:9', 1920, .9], ['1:1', 1080, .9], ['9:16', 1080, .9, true]]) {
+    for (const [fmt, width, t, alpha] of [['9:16', 720, .9], ['9:16', 1080, .9], ['9:16', 1080, 2.4], ['9:16', 1080, 1.5], ['9:16', 1440, .9], ['9:16', 2160, .9], ['16:9', 1920, .9], ['1:1', 1080, .9], ['9:16', 1080, .9, true]]) {
       const job = await mainWin.webContents.executeJavaScript(`window.__ciJob(${JSON.stringify(fmt)})`), outW = width, outH = Math.round(width * job.H / job.W / 2) * 2, name = `frame-${fmt.replace(':', 'x')}-${width}-${t}${alpha ? '-alpha' : ''}.png`;
       try {
         JOB_HTML = job.html; const png = await grabFrame(job, outW, outH, t, !!alpha), sc = rep.display.scale || 1;
@@ -84,8 +84,8 @@ async function ciRun(dir) {
       await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '4', wav]);
       const r = await exportVideoImpl({ sender: mainWin.webContents }, { html: job.html, W: job.W, H: job.H, width: 1080, start: 0, end: 3, outDur: 3, cuts: [], fade: .5, fps: 30, container: 'mp4', name: 'ci', loud: true, audioPath: wav, outPath: out });
       rep.export = r; if (r && r.ok) { await runFF(['-v', 'error', '-y', '-ss', '0.9', '-i', out, '-frames:v', '1', path.join(dir, 'export-1080-0.9.png')]); rep.probe = await runFFOut(['-hide_banner', '-i', out, '-f', 'null', '-']).then(x => (x.match(/Stream #0:0.*/) || [''])[0]);
-        await runFF(['-v', 'error', '-y', '-ss', '2.4', '-i', out, '-frames:v', '1', path.join(dir, 'export-1080-2.4.png')]);
-        { const x = thumb(fs.readFileSync(path.join(dir, 'export-1080-2.4.png'))), y = thumb(fs.readFileSync(path.join(dir, 'frame-9x16-1080-2.4.png'))); let d = 0; for (let i = 0; i < x.length; i++) d += Math.abs(x[i] - y[i]); d /= x.length; rep.exportDiff24 = +d.toFixed(2); if (d > 8) rep.errors.push(`кадр 2.4 с ролика отличается от отдельного кадра (${d.toFixed(1)})`); }
+        for (const tt of ['1.5', '2.4']) { await runFF(['-v', 'error', '-y', '-ss', tt, '-i', out, '-frames:v', '1', path.join(dir, `export-1080-${tt}.png`)]);
+          const x = thumb(fs.readFileSync(path.join(dir, `export-1080-${tt}.png`))), y = thumb(fs.readFileSync(path.join(dir, `frame-9x16-1080-${tt}.png`))); let d = 0; for (let i = 0; i < x.length; i++) d += Math.abs(x[i] - y[i]); d /= x.length; rep['exportDiff' + tt] = +d.toFixed(2); if (d > 8) rep.errors.push(`кадр ${tt} с ролика отличается от отдельного кадра (${d.toFixed(1)})`); }
         const b = thumb(fs.readFileSync(path.join(dir, 'export-1080-0.9.png'))); let d = 0; for (let i = 0; i < b.length; i++) d += Math.abs(b[i] - small.ref[i]); d /= b.length; rep.exportDiff = +d.toFixed(2);
         if (d > 8) rep.errors.push(`кадр готового ролика отличается от контрольного (${d.toFixed(1)})`); if (!/bt709/.test(rep.probe)) rep.errors.push('в ролике нет метки цвета BT.709: ' + rep.probe); }
       else rep.errors.push('экспорт не удался: ' + JSON.stringify(r));
@@ -518,7 +518,7 @@ async function openEngine(outW, outH, zoom, alpha) {
     const k = Math.min(cw / outW, ch / outH), w = Math.max(2, Math.floor(outW * k / 2) * 2), h = Math.max(2, Math.round(w * outH / outW));
     log(`окно рендера ${outW}x${outH} урезано системой до ${cw}x${ch} — рендерю в ${w}x${h} и увеличиваю`); win.destroy(); win = mk(w, h, zoom * w / outW);
   }
-  win.webContents.setFrameRate(60);
+  win.webContents.setFrameRate(120);
   await win.loadURL('app://job/engine.html'); win.webContents.setZoomFactor(win.__zoom);
   for (let i = 0; i < 300; i++) { if (await win.webContents.executeJavaScript('window.READY===true||!!window.__err')) break; await new Promise(r => setTimeout(r, 100)); }
   await win.webContents.executeJavaScript('document.fonts.ready.then(()=>1)');
@@ -530,10 +530,15 @@ async function openEngine(outW, outH, zoom, alpha) {
 }
 // Снимок кадра только после того, как окно его действительно перерисовало. Раньше снимок брался сразу, и в больших
 // размерах (1080p и выше) перерисовка не успевала: в ролик попадал предыдущий кадр — анимации дёргались и «отставали».
-function freshCapture(win) {
-  const wc = win.webContents;
-  return new Promise(res => { let done = false; const fin = () => { if (done) return; done = true; clearTimeout(tm); wc.removeListener('paint', fin); res(); }, tm = setTimeout(fin, 2500); wc.on('paint', fin); wc.invalidate(); })
-    .then(() => wc.capturePage());
+// Первая перерисовка после перемотки может быть ещё старой (уже стояла в очереди), поэтому ждём две.
+function waitPaint(wc, ms) { return new Promise(res => { let done = false; const fin = () => { if (done) return; done = true; clearTimeout(tm); wc.removeListener('paint', fin); res(); }, tm = setTimeout(fin, ms); wc.on('paint', fin); wc.invalidate(); }); }
+async function freshCapture(win) { const wc = win.webContents; await waitPaint(wc, 2500); await waitPaint(wc, 1000); return wc.capturePage(); }
+// Одиночный кадр (обложка, PNG, проверка) — через отладчик страницы: он всегда рисует кадр заново
+async function cdpCapture(win, alpha) {
+  const dbg = win.webContents.debugger; if (!dbg.isAttached()) dbg.attach('1.3');
+  if (alpha) await dbg.sendCommand('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
+  const r = await dbg.sendCommand('Page.captureScreenshot', { format: 'png', fromSurface: true });
+  return nativeImage.createFromBuffer(Buffer.from(r.data, 'base64'));
 }
 const frameAt = (win, t) => win.webContents.executeJavaScript(`(window.seekAsync||((t)=>Promise.resolve(seek(t))))(${t.toFixed(5)}).then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))`);
 async function renderSegment(job, k0, k1, file, dims, onFrame) {
@@ -715,7 +720,7 @@ handle('exportVideo', async (ev, job) => {
 async function grabFrame(job, outW, outH, t, alpha) {
   const win = await openEngine(outW, outH, outW / job.W, alpha);
   try {
-    await frameAt(win, t); const img = await freshCapture(win), size = img.getSize();
+    await frameAt(win, t); let img; try { img = await cdpCapture(win, alpha); if (img.isEmpty()) throw new Error('пустой снимок'); } catch (e) { log('снимок через отладчик не вышел:', e.message); img = await freshCapture(win); } const size = img.getSize();
     const info = await win.webContents.executeJavaScript('[innerWidth,innerHeight,devicePixelRatio]').catch(() => null);
     return { data: (size.width === outW && size.height === outH ? img : img.resize({ width: outW, height: outH })).toPNG(), size: [size.width, size.height], info: { inner: info, content: win.getContentSize() } };
   } finally { win.destroy(); }
