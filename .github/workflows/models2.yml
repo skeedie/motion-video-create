@@ -48,6 +48,8 @@ jobs:
           PY
           # Beat This! small — экспорт из beat-this-rs (MIT): проверенный вход spectrogram [1,T,128]
           curl -sSL -o out/beat_this_small.onnx https://github.com/danigb/beat-this-rs/raw/main/models/beat_this_small.onnx
+          # IS-Net general (Apache-2.0) — лёгкая модель вырезания фона для компьютеров с памятью меньше 16 ГБ
+          curl -sSL -o out/isnet-general-use.onnx https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx
           # BiRefNet lite (MIT) — зеркало из релиза rembg
           curl -sSL -o out/birefnet_lite.onnx https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx
           ls -la out info
