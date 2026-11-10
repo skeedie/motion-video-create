@@ -1050,6 +1050,8 @@ function selfTestSpec() {
   spec.scenes = [{ words: [0, 2], t0: 0, t1: 1.4, widget: { type: 'player', title: en ? 'system check' : 'проверка системы', artist: 'Lyric Studio', emoji: '🎧' } }, { words: [2, 4], t0: 1.4, t1: 3, kinetic: { mode: 'stack', accent: '#E10600', words: ws[3], rot: 4 } }];
   return spec;
 }
+// контрольный ролик для автоматической проверки экспорта
+window.__ciJob = fmt => { const keep = proj.style.format; proj.style.format = fmt; let spec; try { spec = selfTestSpec(); } finally { proj.style.format = keep; } const [W, H] = FMT[fmt]; return { html: engineHTML(spec, 'app://app/'), W, H }; };
 async function runSelfTest() {
   if (stBusy) return; stBusy = true; $('#stRun').disabled = true; $('#stBar').style.width = '0'; const st = $('#stStatus'); st.className = 'status'; st.textContent = 'Проверяю компоненты…';
   stLines = [{ group: 'Проверка', name: 'Компоненты', level: 'run', text: 'проверяю…' }]; stRender();

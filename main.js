@@ -57,6 +57,31 @@ function createWindow() {
   });
 }
 
+// ---------- проверка экспорта в автоматической сборке: LS_CI_OUT=папка ----------
+// Рендерит контрольные кадры и короткий ролик на настоящей Windows, чтобы ошибки экспорта ловились до выпуска.
+async function ciRun(dir) {
+  const { screen } = require('electron'), sleep = ms => new Promise(r => setTimeout(r, ms)), rep = { frames: [], errors: [] };
+  try {
+    fs.mkdirSync(dir, { recursive: true }); const d = screen.getPrimaryDisplay(); rep.display = { size: d.size, workArea: d.workAreaSize, scale: d.scaleFactor };
+    for (let i = 0; i < 300; i++) { if (await mainWin.webContents.executeJavaScript('!!(window.__ls&&window.__ciJob)').catch(() => false)) break; await sleep(100); }
+    for (const [fmt, width, t] of [['9:16', 720, .9], ['9:16', 1080, .9], ['9:16', 1080, 2.4], ['9:16', 2160, .9], ['16:9', 1920, .9], ['1:1', 1080, .9]]) {
+      const job = await mainWin.webContents.executeJavaScript(`window.__ciJob(${JSON.stringify(fmt)})`), outW = width, outH = Math.round(width * job.H / job.W / 2) * 2, name = `frame-${fmt.replace(':', 'x')}-${width}-${t}.png`;
+      try {
+        JOB_HTML = job.html; const png = await grabFrame(job, outW, outH, t, false);
+        fs.writeFileSync(path.join(dir, name), png.data); rep.frames.push({ name, want: [outW, outH], got: png.size, info: png.info });
+      } catch (e) { rep.errors.push(name + ': ' + (e.stack || e.message)); }
+    }
+    try {
+      const job = await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16')`), wav = path.join(dir, 'silence.wav'), out = path.join(dir, 'export-1080.mp4');
+      await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '4', wav]);
+      const r = await exportVideoImpl({ sender: mainWin.webContents }, { html: job.html, W: job.W, H: job.H, width: 1080, start: 0, end: 3, outDur: 3, cuts: [], fade: .5, fps: 30, container: 'mp4', name: 'ci', audioPath: wav, outPath: out });
+      rep.export = r; if (r && r.ok) { await runFF(['-v', 'error', '-y', '-ss', '0.9', '-i', out, '-frames:v', '1', path.join(dir, 'export-1080-0.9.png')]); rep.probe = await runFFOut(['-hide_banner', '-i', out, '-f', 'null', '-']).then(x => (x.match(/Stream #0:0.*/) || [''])[0]); }
+    } catch (e) { rep.errors.push('export: ' + (e.stack || e.message)); }
+  } catch (e) { rep.errors.push(e.stack || e.message); }
+  try { fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(rep, null, 1)); } catch (e) {}
+  markClean(); killChildren(); app.exit(rep.errors.length ? 1 : 0);
+}
+
 // флаг «программа работает»: если при следующем запуске он остался — прошлый сеанс завершился аварийно
 const RUN_FLAG = () => UD('running.flag');
 let LAST_CRASH = null;
@@ -76,6 +101,7 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(p).toString());
   });
   createWindow();
+  if (process.env.LS_CI_OUT) ciRun(process.env.LS_CI_OUT);
 });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { cancelFlag = true; BrowserWindow.getAllWindows().forEach(w => { if (w !== mainWin) try { w.destroy(); } catch (e) {} }); });
@@ -574,6 +600,15 @@ handle('exportVideo', async (ev, job) => {
   if (r && r.retry) { send(ev, 'progress:export', { frac: 0, text: 'Видеокарта не справилась — повторяю на процессоре…' }); return await exportVideoImpl(ev, Object.assign({}, job, { gpu: false, gpuEnc: undefined, outPath: r.out })); }
   return r;
 });
+// один кадр в PNG — общий путь для обложек, кадров и проверки экспорта
+async function grabFrame(job, outW, outH, t, alpha) {
+  const win = await openEngine(outW, outH, outW / job.W, alpha);
+  try {
+    await frameAt(win, t); win.webContents.invalidate(); await new Promise(r => setTimeout(r, 150)); const img = await win.webContents.capturePage(), size = img.getSize();
+    const info = await win.webContents.executeJavaScript('[innerWidth,innerHeight,devicePixelRatio]').catch(() => null);
+    return { data: (size.width === outW && size.height === outH ? img : img.resize({ width: outW, height: outH })).toPNG(), size: [size.width, size.height], info: { inner: info, content: win.getContentSize() } };
+  } finally { win.destroy(); }
+}
 // кадр в PNG без диалога — для вариантов обложки
 handle('renderFrame', async (ev, job) => {
   const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
