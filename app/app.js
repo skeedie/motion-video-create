@@ -141,8 +141,16 @@ function buildSpec(forExport, opts = {}) {
     const punch = [].concat(out.punch || []);
     if (s.widget && sc.bump != null && sc.bump !== '') punch.push({ word: '·', at: +sc.bump, style: 'bump' });
     if (s.widget && sc.stamp) punch.push({ word: sc.stamp, at: sc.stampAt !== '' && sc.stampAt != null ? +sc.stampAt : cx.word(cx.n - 2), style: 'stamp', color: '#16A34A', top: 12, right: 20, size: 26, rot: -9 });
+    const fxs = [];
+    if (sc.fx) fxs.push({ type: 'emoji', emoji: sc.fx, at: sc.fxAt !== '' && sc.fxAt != null ? +sc.fxAt : cx.word(0), dir: 'up', front: false, n: 12 });
+    // дополнительные акценты сцены: сколько угодно подпрыгиваний, штампов и эмодзи, каждый на своём слове
+    let stampN = sc.stamp ? 1 : 0;
+    (sc.accents || []).forEach(a => { const at = a.at !== '' && a.at != null && +a.at >= sc.a && +a.at < sc.b ? +a.at : null;
+      if (a.k === 'bump') { if (s.widget && at != null) punch.push({ word: '·', at, style: 'bump' }); }
+      else if (a.k === 'stamp') { if (s.widget && a.v) { punch.push({ word: a.v, at: at ?? cx.word(cx.n - 1), style: 'stamp', color: a.color || '#16A34A', top: 12 + 58 * stampN, right: 20, size: 26, rot: stampN % 2 ? 7 : -9 }); stampN++; } }
+      else if (a.k === 'fx') { if (a.v) fxs.push({ type: 'emoji', emoji: a.v, at: at ?? cx.word(0), dir: 'up', front: false, n: 12 }); } });
     if (punch.length) s.punch = punch; else delete s.punch;
-    if (sc.fx) s.fx = { type: 'emoji', emoji: sc.fx, at: sc.fxAt !== '' && sc.fxAt != null ? +sc.fxAt : cx.word(0), dir: 'up', front: false, n: 12 };
+    if (fxs.length) s.fx = fxs.length === 1 ? fxs[0] : fxs;
     if (s.kinetic && c.on && !s.kinetic.accent) s.kinetic.accent = c.accent;
     if (sc.trans) s.trans = sc.trans; if (sc.cam) s.cam = sc.cam;
     ['dx', 'dy', 'dx2', 'dy2', 'k2scale'].forEach(k => { if (sc[k]) s[k] = sc[k]; });
@@ -174,8 +182,16 @@ function buildSpec(forExport, opts = {}) {
 const hexA = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
 const defFields = t => Object.fromEntries(t.fields.map(x => [x.k, defaultOf(t, x)]));
 
+// Текст песни и поля сцен — данные, а не разметка и не код:
+//  · «<» перед буквой в них экранируется, иначе строка вроде «a<b» съедалась как тег;
+//  · скрипт движка получает одноразовую метку (nonce), и политика страницы не исполняет ничего другого —
+//    чужой проект, пресет или шаблон не может выполнить свой код в окне редактора.
 function engineHTML(spec, base) {
-  return ENGINE.replace('<head>', `<head>${base ? `<base href="${base}">` : ''}<script>window.onerror=(m)=>{window.__err=String(m)}<\/script><link rel="stylesheet" href="fonts.css">`).replace('/*SPEC*/', 'window.SPEC=' + JSON.stringify(spec) + ';');
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+  const json = JSON.stringify(spec, (k, v) => typeof v === 'string' && v.indexOf('<') >= 0 && !v.startsWith('data:') ? v.replace(/<(?=[a-zA-Z\/!?])/g, '&lt;') : v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  return ENGINE.replace('<script>', () => `<script nonce="${nonce}">`)
+    .replace('<head>', () => `<head><meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}'; object-src 'none'">${base ? `<base href="${base}">` : ''}<script nonce="${nonce}">window.onerror=(m)=>{window.__err=String(m)}<\/script><link rel="stylesheet" href="fonts.css">`)
+    .replace('/*SPEC*/', () => 'window.SPEC=' + json + ';');
 }
 
 // вырезанные проигрыши: время трека (исходное) ↔ время ролика
@@ -353,7 +369,7 @@ function sfxEvents(spec) {
       else if (tpl.id === 'achievement' || tpl.id === 'pcach') push(w0.t, 'chime', .9);
       else if (SFX_CAT[tpl.cat]) walk(s.widget, t => push(t - .03, SFX_CAT[tpl.cat], .8));
     }
-    if (sx.acc) { (s.punch || []).forEach(p => { if (typeof p.at === 'number' && W[p.at]) push(W[p.at].t, p.style === 'stamp' ? 'thump' : 'pop', p.style === 'stamp' ? 1 : .6); }); if (s.fx && typeof s.fx.at === 'number' && W[s.fx.at]) push(W[s.fx.at].t, 'pop', .7); }
+    if (sx.acc) { (s.punch || []).forEach(p => { if (typeof p.at === 'number' && W[p.at]) push(W[p.at].t, p.style === 'stamp' ? 'thump' : 'pop', p.style === 'stamp' ? 1 : .6); }); [].concat(s.fx || []).forEach(f => { if (typeof f.at === 'number' && W[f.at]) push(W[f.at].t, 'pop', .7); }); }
   });
   if (sx.acc) W.forEach(w => { if (w.acc && (w.acc.zoom || w.acc.shake)) push(w.t, 'hit', .8); else if (w.acc && w.acc.emoji) push(w.t + .04, 'pop', .7); });
   if (sx.trans && spec.intro) push(spec.intro.t0 + .1, 'whoosh', .7);
@@ -638,6 +654,7 @@ function renderScene() {
   const card = !t.nocard; $('#seCardOnly').hidden = !card; $('#seScaleBox').hidden = !card;
   $('#seBump').innerHTML = wordOptions(sc, sc.bump); $('#seStamp').value = sc.stamp || ''; $('#seStampAt').innerHTML = wordOptions(sc, sc.stampAt, 'авто');
   $('#seFx').value = sc.fx || ''; $('#seFxAt').innerHTML = wordOptions(sc, sc.fxAt, 'авто');
+  renderAccents(sc, card);
   $('#seTrans').value = sc.trans || ''; $('#seCam').value = sc.cam || '';
   $('#seScale').value = sc.scale || defScale(sc); $('#seScaleV').textContent = (+$('#seScale').value).toFixed(2);
 }
@@ -714,6 +731,23 @@ $('#seStamp').oninput = e => { proj.scenes[sel].stamp = e.target.value; schedule
 $('#seStampAt').onchange = e => { proj.scenes[sel].stampAt = e.target.value; scheduleRebuild(); };
 $('#seFx').oninput = e => { proj.scenes[sel].fx = e.target.value; scheduleRebuild(); };
 $('#seFxAt').onchange = e => { proj.scenes[sel].fxAt = e.target.value; scheduleRebuild(); };
+// дополнительные акценты: строка = вид + (текст или эмодзи) + слово, на котором сработает
+const ACC_KINDS = [['bump', 'подпрыгнуть'], ['stamp', 'штамп'], ['fx', 'эмодзи']];
+function renderAccents(sc, card) {
+  const box = $('#seAccList'); box.innerHTML = '';
+  (sc.accents || []).forEach((a, i) => {
+    const kinds = ACC_KINDS.filter(([k]) => card || k === 'fx'), d = document.createElement('div'); d.className = 'row tight accRow';
+    d.innerHTML = `<select data-f="k" style="width:auto;flex:none">${kinds.map(([k, n]) => `<option value="${k}" ${a.k === k ? 'selected' : ''}>${n}</option>`).join('')}</select>` +
+      (a.k === 'bump' ? '' : `<input data-f="v" ${a.k === 'fx' ? 'class="emo" placeholder="✨"' : 'placeholder="Понятно ✓"'} value="${esc(a.v || '')}" style="flex:1;min-width:0">`) +
+      `<select data-f="at" style="flex:1;min-width:0">${wordOptions(sc, a.at, a.k === 'bump' ? 'слово…' : 'авто')}</select><button class="del" title="Убрать акцент" style="flex:none">×</button>`;
+    d.onchange = d.oninput = e => { const f = e.target.dataset.f; if (!f) return; a[f] = e.target.value; if (f === 'k') { if (a.k === 'bump') delete a.v; renderAccents(sc, card); } scheduleRebuild(); };
+    d.querySelector('.del').onclick = () => { sc.accents.splice(i, 1); if (!sc.accents.length) delete sc.accents; renderAccents(sc, card); scheduleRebuild(); };
+    box.append(d);
+  });
+  $('#seAccAdd').onclick = () => { const cur = curWordIn(sc); (sc.accents = sc.accents || []).push({ k: card ? 'bump' : 'fx', at: cur != null ? String(cur) : '', v: card ? undefined : '✨' }); renderAccents(sc, card); scheduleRebuild(); };
+}
+// слово сцены под курсором воспроизведения — новый акцент встаёт на него
+function curWordIn(sc) { const t = curT(); let best = null; for (let i = sc.a; i < sc.b; i++) if (proj.words[i] && proj.words[i].t <= t + .05) best = i; return best; }
 $('#seScale').oninput = e => { proj.scenes[sel].scale = +e.target.value; $('#seScaleV').textContent = (+e.target.value).toFixed(2); scheduleRebuild(200); };
 function mergePrev() { if (sel < 1) return; const p = proj.scenes[sel - 1]; p.b = proj.scenes[sel].b; proj.scenes.splice(sel, 1); sel--; renderAll(); scheduleRebuild(); }
 function mergeNext() { if (sel >= proj.scenes.length - 1) return; const c = proj.scenes[sel]; c.b = proj.scenes[sel + 1].b; proj.scenes.splice(sel + 1, 1); renderAll(); scheduleRebuild(); }

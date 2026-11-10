@@ -2,7 +2,7 @@ name: Проверка экспорта на Windows
 on:
   push:
     branches: ['**']
-    paths: ['main.js', 'dev/ci_exp.js', 'preload.js', 'app/engine.html', 'app/app.js', '.github/workflows/export-test.yml']
+    paths: ['main.js', 'preload.js', 'app/engine.html', 'app/app.js', '.github/workflows/export-test.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -38,7 +38,6 @@ jobs:
         shell: bash
         env:
           LS_CI_OUT: ${{ github.workspace }}\ci-out
-          LS_CI_EXP: '1'
         run: |
           npx electron . ; code=$?
           cat ci-out/report.json || true

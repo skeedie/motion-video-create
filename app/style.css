@@ -175,3 +175,4 @@ h4.sub{margin:22px 0 6px;font-size:13px;border-top:1px solid var(--line);padding
 #stRes .sr span{color:var(--mut);font-size:12px}
 #stRes .sr.ok i{color:var(--acc2)}#stRes .sr.warn i{color:#F5B83D}#stRes .sr.err i{color:var(--red)}#stRes .sr.info i{color:#7aa7ff}
 #stRes .sr.err span{color:var(--red)}
+.accRow{margin-top:6px}.accRow select,.accRow input{font-size:12px}.accRow .del{width:28px;padding:6px 0}
