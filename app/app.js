@@ -147,7 +147,7 @@ function buildSpec(forExport, opts = {}) {
     let stampN = sc.stamp ? 1 : 0;
     (sc.accents || []).forEach(a => { const at = a.at !== '' && a.at != null && +a.at >= sc.a && +a.at < sc.b ? +a.at : null;
       if (a.k === 'bump') { if (s.widget && at != null) punch.push({ word: '·', at, style: 'bump' }); }
-      else if (a.k === 'stamp') { if (s.widget && a.v) { punch.push({ word: a.v, at: at ?? cx.word(cx.n - 1), style: 'stamp', color: a.color || '#16A34A', top: 12 + 58 * stampN, right: 20, size: 26, rot: stampN % 2 ? 7 : -9 }); stampN++; } }
+      else if (a.k === 'stamp') { if (s.widget && a.v) { punch.push({ word: a.v, at: at ?? cx.word(cx.n - 1), style: 'stamp', color: a.color || '#16A34A', top: 12 + 74 * stampN, right: 20 + 46 * (stampN % 2), size: 26, rot: stampN % 2 ? 7 : -9 }); stampN++; } }
       else if (a.k === 'fx') { if (a.v) fxs.push({ type: 'emoji', emoji: a.v, at: at ?? cx.word(0), dir: 'up', front: false, n: 12 }); } });
     if (punch.length) s.punch = punch; else delete s.punch;
     if (fxs.length) s.fx = fxs.length === 1 ? fxs[0] : fxs;
