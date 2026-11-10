@@ -486,7 +486,7 @@ $('#bRecog').onclick = async () => {
     proj.words = words.map(w => Object.assign({ w: w.w, t: w.t, e: w.e, line: w.line }, w.conf < .6 ? { unsure: true } : null)); markAdlibs(proj.words);
     if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
     const lines = proj.words.length ? proj.words[proj.words.length - 1].line + 1 : 0, unsure = words.filter(w => w.conf < .6).length;
-    st.className = 'status ok'; st.textContent = `Распознано: ${words.length} слов, ${lines} строк${unsure ? `, неуверенно — ${unsure} (подсвечены на вкладке «Слова» и на таймлайне)` : ''}. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления.`;
+    st.className = 'status ok'; st.textContent = `Распознано: ${words.length} слов, ${lines} строк${unsure ? `, неуверенно — ${unsure} (они подсвечены на вкладке «Слова» и на таймлайне)` : ''}. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления.`;
     fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50); touch();
   } catch (e) { if (wasCancelled(e)) { st.className = 'status'; st.textContent = 'Отменено.'; } else { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'распознавание: ' + (e.message || e)); } }
   alBusy(false);
@@ -591,11 +591,11 @@ $$('#perScene button').forEach(b => b.onclick = () => { proj.perScene = +b.datas
 function renderWords() {
   const box = $('#wordList'); box.innerHTML = ''; let ln = -1;
   const nUnsure = proj.words.filter(w => w.unsure).length;
-  if (nUnsure) { const h = document.createElement('div'); h.className = 'hint unsureHint'; h.innerHTML = `Нейросеть не уверена в ${nUnsure} ${nUnsure === 1 ? 'слове' : 'словах'} — они подсвечены. Послушайте их; если слово верное, нажмите на «?».<button class="ghost small" style="margin-left:6px">снять все</button>`;
+  if (nUnsure) { const h = document.createElement('div'); h.className = 'hint unsureHint'; h.innerHTML = `<span>${esc(T(`Неуверенно распознанных слов: ${nUnsure}. Они подсвечены. Послушайте их; если слово верное, нажмите на «?».`))}</span><button class="ghost small" style="margin-left:6px">${esc(T('снять все'))}</button>`;
     h.querySelector('button').onclick = () => { proj.words.forEach(w => delete w.unsure); renderWords(); Timeline.redraw(); touch(); }; box.append(h); }
   proj.words.forEach((w, i) => {
     const d = document.createElement('div'); d.className = 'w' + (w.line !== ln ? ' ln' : '') + (w.unsure ? ' unsure' : ''); ln = w.line;
-    d.innerHTML = `<span>${esc(w.w)}${w.unsure ? '<b class="uq" title="Нейросеть не уверена в этом слове. Нажмите, если оно верное">?</b>' : ''}</span><button data-d="-0.05">−</button><span class="mono">${w.t.toFixed(2)}</span><button data-d="0.05">+</button>`;
+    d.innerHTML = `<span>${esc(w.w)}${w.unsure ? `<b class="uq" title="${esc(T('Нейросеть не уверена в этом слове. Нажмите, если оно верное'))}">?</b>` : ''}</span><button data-d="-0.05">−</button><span class="mono">${w.t.toFixed(2)}</span><button data-d="0.05">+</button>`;
     d.children[0].onclick = e => { if (e.target.classList.contains('uq')) { delete w.unsure; renderWords(); Timeline.redraw(); touch(); return; } seekTo(Math.max(0, w.t - .15)); };
     d.querySelectorAll('button').forEach(b => b.onclick = () => { w.t = +(w.t + +b.dataset.d).toFixed(2); w.e = Math.max(w.e, w.t + .05); d.querySelector('.mono').textContent = w.t.toFixed(2); scheduleRebuild(); });
     box.append(d);
@@ -1002,7 +1002,7 @@ function applyProject(p, path) {
 }
 async function afterLoad() {
   if (proj.audioPath) { try { await loadAudio({ path: proj.audioPath, name: proj.audioName }); } catch (e) { audio.removeAttribute('src'); audioData = null; $('#audioName').textContent = (proj.audioName || 'трек') + ' — не найден';
-      if (confirm(`Трек «${proj.audioName || ''}» не найден по старому пути (файл переместили или переименовали).\n\nУказать, где он лежит?`)) { const info = await api.pickAudio(); if (info) { try { await loadAudio(info); touch(); toast('Трек подключён заново'); } catch (x) { toastErr('Не удалось прочитать файл: ' + x.message); } } }
+      if (confirm(`Трек «${proj.audioName || ''}» не найден по старому пути: файл переместили или переименовали. Указать, где он лежит?`)) { const info = await api.pickAudio(); if (info) { try { await loadAudio(info); touch(); toast('Трек подключён заново'); } catch (x) { toastErr('Не удалось прочитать файл: ' + x.message); } } }
       else toast('Трек не подключён — выберите его кнопкой «Выбрать файл…»', 4500); } }
   renderAll(); Timeline.fit(); histReset(); dirty = false; updTitle(); rebuildPreview();
 }
@@ -1195,8 +1195,8 @@ let mdBusy = false;
 async function openModels() { $('#mdModal').hidden = false; $('#mdStatus').textContent = ''; await renderModels(); }
 async function renderModels() {
   const box = $('#mdList'); let list = []; try { list = await api.modelsInfo(); } catch (e) { box.textContent = String(e.message || e); return; }
-  const mb = b => (b / 2 ** 20).toFixed(0) + ' МБ', total = list.reduce((a, m) => a + m.size, 0);
-  box.innerHTML = list.map(m => `<div class="md"><div><b>${esc(T(m.name))}</b><div class="muted small">${m.have ? T('скачана') + ' · ' + mb(m.size) : T('не скачана') + ' · ≈' + m.mb + ' МБ'}</div></div><button class="small ${m.have ? 'ghost' : ''}" data-k="${esc(m.key)}" data-a="${m.have ? 'del' : 'get'}">${m.have ? T('удалить') : T('скачать')}</button></div>`).join('');
+  const MB = LANG === 'en' ? ' MB' : ' МБ', mb = b => (b / 2 ** 20).toFixed(0) + MB, total = list.reduce((a, m) => a + m.size, 0);
+  box.innerHTML = list.map(m => `<div class="md"><div><b>${esc(T(m.name))}</b><div class="muted small">${m.have ? T('скачана') + ' · ' + mb(m.size) : T('не скачана') + ' · ≈' + m.mb + MB}</div></div><button class="small ${m.have ? 'ghost' : ''}" data-k="${esc(m.key)}" data-a="${m.have ? 'del' : 'get'}">${m.have ? T('удалить') : T('скачать')}</button></div>`).join('');
   $('#mdTotal').textContent = T('Всего на диске') + ': ' + mb(total);
   box.querySelectorAll('button').forEach(b => b.onclick = async () => {
     if (mdBusy) return; const st = $('#mdStatus');

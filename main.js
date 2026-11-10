@@ -23,7 +23,7 @@ const MODEL_DIR = () => UD('giga-ctc');
 const USER_PRESETS = () => UD('user-presets.json');
 let JOB_HTML = '<html></html>', mainWin = null, cancelFlag = false, LANG = 'ru';
 // подписи системных диалогов на английском (остальной интерфейс переводит окно)
-const DLG_EN = { 'Сохранить видео': 'Save video', 'Сохранить обложку': 'Save cover', 'Сохранить кадр': 'Save frame', 'Папка для видео': 'Folder for videos', 'Видео MP4': 'MP4 video', 'MOV с прозрачностью (ProRes 4444)': 'MOV with alpha (ProRes 4444)', 'WebM с прозрачностью (VP9)': 'WebM with alpha (VP9)', 'GIF-анимация': 'GIF animation', 'Видеостикер Telegram (WebM)': 'Telegram video sticker (WebM)', 'Выберите трек': 'Choose a track', 'Выберите треки': 'Choose tracks', 'Аудио': 'Audio', 'Картинки': 'Images', 'Шрифты': 'Fonts', 'Проект Lyric Studio': 'Lyric Studio project', 'Сохранить проект': 'Save project', 'Открыть проект': 'Open project', 'Пресет Lyric Studio': 'Lyric Studio preset', 'Проект с треком': 'Project with track', 'Фото и видео': 'Photos and videos', 'Открыть пресет': 'Open preset', 'Сохранить пресет в файл': 'Save preset to file', 'Сохранить проект вместе с треком': 'Save project with track', 'Треки для пакетной обработки': 'Tracks for batch', 'Фон: фото или видео': 'Background: photo or video', 'Выберите картинку': 'Choose an image', 'Выберите шрифт': 'Choose a font' };
+const DLG_EN = { 'Сохранить тайминги LRC': 'Save LRC timings', 'Сохранить субтитры SRT': 'Save SRT subtitles', 'Тайминги: LRC или SRT': 'Timings: LRC or SRT', 'Сохранить файл': 'Save file', 'Открыть файл': 'Open file', 'Сохранить видео': 'Save video', 'Сохранить обложку': 'Save cover', 'Сохранить кадр': 'Save frame', 'Папка для видео': 'Folder for videos', 'Видео MP4': 'MP4 video', 'MOV с прозрачностью (ProRes 4444)': 'MOV with alpha (ProRes 4444)', 'WebM с прозрачностью (VP9)': 'WebM with alpha (VP9)', 'GIF-анимация': 'GIF animation', 'Видеостикер Telegram (WebM)': 'Telegram video sticker (WebM)', 'Выберите трек': 'Choose a track', 'Выберите треки': 'Choose tracks', 'Аудио': 'Audio', 'Картинки': 'Images', 'Шрифты': 'Fonts', 'Проект Lyric Studio': 'Lyric Studio project', 'Сохранить проект': 'Save project', 'Открыть проект': 'Open project', 'Пресет Lyric Studio': 'Lyric Studio preset', 'Проект с треком': 'Project with track', 'Фото и видео': 'Photos and videos', 'Открыть пресет': 'Open preset', 'Сохранить пресет в файл': 'Save preset to file', 'Сохранить проект вместе с треком': 'Save project with track', 'Треки для пакетной обработки': 'Tracks for batch', 'Фон: фото или видео': 'Background: photo or video', 'Выберите картинку': 'Choose an image', 'Выберите шрифт': 'Choose a font' };
 const tr = s => LANG === 'en' && DLG_EN[s] || s;
 
 // ---------- журнал ----------
@@ -79,6 +79,22 @@ async function ciRun(dir) {
         if (fmt === '9:16' && t === .9 && !alpha) { const b = thumb(png.data); if (!small.ref) small.ref = b; else { let d = 0; for (let i = 0; i < b.length; i++) d += Math.abs(b[i] - small.ref[i]); d /= b.length; rep.frames[rep.frames.length - 1].diff720 = +d.toFixed(2); if (d > 6) rep.errors.push(`${name}: картинка отличается от 720p (${d.toFixed(1)})`); } }
       } catch (e) { rep.errors.push(name + ': ' + (e.stack || e.message)); }
     }
+    // диагностика: совпадает ли картинка с тем, что на странице после перемотки (кадр не «застрял»)
+    try {
+      for (const [fmt, width] of [['9:16', 1080], ['16:9', 1920]]) {
+        const job = await mainWin.webContents.executeJavaScript(`window.__ciJob(${JSON.stringify(fmt)})`), outW = width, outH = Math.round(width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
+        const win = await openEngine(outW, outH, outW / job.W, false), wc = win.webContents; let paints = 0; wc.on('paint', () => paints++);
+        const d = { fmt, painting: wc.isPainting(), frameRate: wc.getFrameRate(), shots: [] };
+        for (const t of [.9, 2.4]) {
+          await frameAt(win, t); const dom = await wc.executeJavaScript('(()=>{ const e=document.querySelector(".wslot .wscale"); if(!e) return null; const r=e.getBoundingClientRect(); return [Math.round(r.x),Math.round(r.y),Math.round(r.width)] })()');
+          const p0 = paints; wc.invalidate(); await new Promise(r => setTimeout(r, 150)); const a = await wc.capturePage(); fs.writeFileSync(path.join(dir, `diag-${fmt.replace(':', 'x')}-${t}-a.png`), a.toPNG());
+          const p1 = paints; await new Promise(r => { const tm = setTimeout(r, 1500); wc.once('paint', () => { clearTimeout(tm); r(); }); wc.invalidate(); }); const b = await wc.capturePage(); fs.writeFileSync(path.join(dir, `diag-${fmt.replace(':', 'x')}-${t}-b.png`), b.toPNG());
+          let c = null; try { const dbg = wc.debugger; if (!dbg.isAttached()) dbg.attach('1.3'); const r = await dbg.sendCommand('Page.captureScreenshot', { format: 'png' }); c = Buffer.from(r.data, 'base64'); fs.writeFileSync(path.join(dir, `diag-${fmt.replace(':', 'x')}-${t}-c.png`), c); } catch (e) { d.cdpErr = e.message; }
+          d.shots.push({ t, dom, paintsBefore: p0, paintsAfter150: p1, paintsEnd: paints, a: a.getSize(), b: b.getSize(), c: c ? nativeImage.createFromBuffer(c).getSize() : null });
+        }
+        win.destroy(); (rep.diag = rep.diag || []).push(d);
+      }
+    } catch (e) { rep.errors.push('diag: ' + (e.stack || e.message)); }
     try {
       const job = await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16')`), wav = path.join(dir, 'silence.wav'), out = path.join(dir, 'export-1080.mp4');
       await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '4', wav]);

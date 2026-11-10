@@ -885,7 +885,10 @@ IS-Net — для BiRefNet нужно от 16 ГБ памяти ⇒ IS-Net — B
 Заменить текст в поле распознанным с трека? ⇒ Replace the lyrics in the box with the ones recognised from the track?
 Распознаю слова… ⇒ Recognising words…
 Распознано: {} слов, {} строк. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления. ⇒ Recognised: {} words, {} lines. The neural net gets slang and names wrong: fix the lyrics in the box and press “Sync words” so the timing follows your fixes.
-Распознано: {} слов, {} строк, неуверенно — {}. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления. ⇒ Recognised: {} words, {} lines, {} uncertain. The neural net gets slang and names wrong: fix the lyrics in the box and press “Sync words” so the timing follows your fixes.
+Распознано: {} слов, {} строк, неуверенно — {} (они подсвечены на вкладке «Слова» и на таймлайне). Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления. ⇒ Recognised: {} words, {} lines, {} uncertain (highlighted on the “Words” tab and on the timeline). The neural net gets slang and names wrong: fix the lyrics in the box and press “Sync words” so the timing follows your fixes.
+Неуверенно распознанных слов: {}. Они подсвечены. Послушайте их; если слово верное, нажмите на «?». ⇒ Uncertain words: {}. They are highlighted. Listen to them; if a word is right, click its “?”.
+Трек «{}» не найден по старому пути: файл переместили или переименовали. Указать, где он лежит? ⇒ Track “{}” was not found at its old location: the file was moved or renamed. Show where it is?
+{} — не найден ⇒ {} — not found
 не удалось расслышать слова — попробуйте «сначала отделить вокал» ⇒ couldn't hear any words — try “separate vocals first”
 Текст на английском — включил английскую модель ⇒ The lyrics are in English — switched to the English model
 Текст на русском — включил русскую модель ⇒ The lyrics are in Russian — switched to the Russian model
@@ -912,6 +915,64 @@ IS-Net — для BiRefNet нужно от 16 ГБ памяти ⇒ IS-Net — B
 новый проект • ⇒ new project •
 {} • ⇒ {} •
 {}. {} ⇒ {}. {}
+Цвет аватара ⇒ Avatar colour
++ ещё акцент ⇒ + another accent
+Сколько угодно акцентов в одной сцене: ещё одно подпрыгивание, штамп или эмодзи — каждый на своём слове. Новый акцент встаёт на слово под курсором ⇒ Any number of accents in one scene: another bump, stamp or emoji — each on its own word. A new accent lands on the word under the playhead
+подпрыгнуть ⇒ bump
+штамп ⇒ stamp
+эмодзи ⇒ emoji
+слово… ⇒ word…
+Убрать акцент ⇒ Remove accent
+определить заново ⇒ detect again
+остановить ⇒ stop
+Остановить синхронизацию, распознавание, отделение вокала или загрузку модели ⇒ Stop syncing, recognition, vocal separation or a model download
+Останавливаю… ⇒ Stopping…
+Отменено. ⇒ Cancelled.
+выровнять громкость под площадки (−14 LUFS) ⇒ normalise loudness for platforms (−14 LUFS)
+Громкость ролика подгоняется под уровень площадок (−14 LUFS): тихий трек станет громче, слишком громкий — тише, без искажений. Площадки и сами приглушают громкие ролики, но тихие не усиливают ⇒ The video's loudness is matched to the platforms' level (−14 LUFS): a quiet track gets louder, a too-loud one quieter, with no distortion. Platforms turn loud videos down themselves but do not boost quiet ones
+Тайминги ⇒ Timings
+Тайминги LRC… ⇒ LRC timings…
+Субтитры SRT… ⇒ SRT subtitles…
+Текст с временем каждой строки — для плееров и других программ ⇒ Lyrics with the time of each line — for players and other apps
+Субтитры по времени готового ролика — для YouTube и монтажа ⇒ Subtitles timed to the finished video — for YouTube and editing
+Тайминги из LRC / SRT… ⇒ Timings from LRC / SRT…
+Готовые тайминги строк: слова расставятся по ним без нейросети ⇒ Ready-made line timings: words are placed by them without the neural network
+LRC сохранён — время строк по треку ⇒ LRC saved — line times follow the track
+SRT сохранён — время по готовому ролику ⇒ SRT saved — times follow the finished video
+В выбранном отрезке ролика нет строк ⇒ There are no lines in the selected part of the video
+В файле не нашлось строк с временем — нужен LRC или SRT ⇒ No timed lines found in the file — an LRC or SRT is needed
+Заменить текст и тайминги проекта данными из файла? ⇒ Replace the project's lyrics and timings with the data from the file?
+Тайминги из «{}»: {} строк, {} слов. Начала строк — из файла, слова внутри строки расставлены равномерно. Для точности по словам нажмите «Синхронизировать слова». ⇒ Timings from “{}”: {} lines, {} words. Line starts come from the file, words inside a line are spread evenly. For word-level accuracy press “Sync words”.
+Отпустите файл ⇒ Drop the file
+трек · проект · пресет · LRC / SRT · картинка или видео для фона ⇒ track · project · preset · LRC / SRT · image or video for the background
+Этот файл не подходит. Можно бросать: трек, проект, пресет, LRC/SRT, картинку или видео для фона ⇒ This file does not fit. You can drop: a track, project, preset, LRC/SRT, an image or a video for the background
+Видео поставлено фоном ⇒ Video set as background
+Картинка поставлена фоном ⇒ Image set as background
+Не удалось получить путь к файлу ⇒ Could not get the file path
+Не удалось открыть файл: ⇒ Could not open the file:
+Модели нейросетей… ⇒ Neural network models…
+Модели нейросетей ⇒ Neural network models
+Все модели работают на этом компьютере, без интернета. Каждая скачивается один раз, когда впервые нужна; здесь их можно скачать заранее или удалить, чтобы освободить место. ⇒ All models run on this computer, offline. Each one downloads once, when first needed; here you can download them in advance or delete them to free up space.
+остановить загрузку ⇒ stop download
+Всего на диске ⇒ Total on disk
+скачана ⇒ downloaded
+не скачана ⇒ not downloaded
+удалить ⇒ delete
+скачать ⇒ download
+Удалить модель с диска? Она скачается заново, когда понадобится. ⇒ Delete the model from disk? It will download again when needed.
+Модель скачана. ⇒ Model downloaded.
+Синхронизация: русский (GigaAM CTC) ⇒ Sync: Russian (GigaAM CTC)
+Синхронизация и распознавание: английский (wav2vec 2.0) ⇒ Sync and recognition: English (wav2vec 2.0)
+Распознавание текста: русский (GigaAM v3) ⇒ Lyrics recognition: Russian (GigaAM v3)
+Биты и сильные доли (Beat This!) ⇒ Beats and downbeats (Beat This!)
+Отделение вокала: быстро (Kim Vocal 2) ⇒ Vocal separation: fast (Kim Vocal 2)
+Отделение вокала: качественно (HT-Demucs) ⇒ Vocal separation: quality (HT-Demucs)
+Вырезание фона (BiRefNet) ⇒ Background removal (BiRefNet)
+Вырезание фона (IS-Net) ⇒ Background removal (IS-Net)
+Нейросеть не уверена в этом слове. Нажмите, если оно верное ⇒ The neural network is unsure about this word. Click if it is correct
+снять все ⇒ clear all
+Трек подключён заново ⇒ Track reconnected
+Трек не подключён — выберите его кнопкой «Выбрать файл…» ⇒ Track not connected — pick it with “Choose file…”
 `;
   // отдельные слова для строк, собранных из кусочков (очередь экспорта, единицы)
   const NB = '(?![А-Яа-яЁё])', W = (re, to) => [new RegExp(re.replace(/\\b/g, NB), 'g'), to];
