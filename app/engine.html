@@ -244,6 +244,16 @@ const TR_OUT={slide:{d:.3,x:-W*.62,y:-20,s:.5,b:5,r:-6,e:'cubic-bezier(.7,0,.84,
 const TR_LEAD={slide:.12,crisp:.14,zoom:.2,whip:.16,drop:.24};
 // виджет на экране телефона не должен быть шире и выше экрана — уменьшаем, если не влезает
 const PHONE_FIT=[];
+const CARD_FIT=[], CAP_FIT=[];
+function fitCards(){ CARD_FIT.forEach(o=>{ if(o.base==null) o.base=o.slot.style.scale||''; if(o.base!=='') return; /* вторая карточка сцены уже уменьшена своим правилом */
+ const d=o.root.style.display; o.root.style.display=''; o.slot.style.scale=''; const bw=o.sc.offsetWidth, bh=o.sc.offsetHeight, k=o.sv(), ah=(o.slot.clientHeight||H)-12, end=getComputedStyle(o.slot).alignItems==='flex-end', top0=o.slot.offsetTop, sh=o.slot.clientHeight||H;
+ const ex=o.s.capEl?o.s.capEl.offsetHeight+((S.capGap??22)/k)+10:0; o.root.style.display=d;
+ if(!bw||!bh) return; const f=Math.min(1,(W-20)/(bw*k),ah/((bh+ex)*k)); if(f<.985){ o.slot.style.transformOrigin=end?'50% 100%':'50% 50%'; o.slot.style.scale=f.toFixed(4); }
+ // подпись, прикреплённая над карточкой, не уходит за верхний край: вся группа опускается
+ if(ex&&!end){ const capTop=top0+sh/2+(o.s.dy||0)-bh*k*Math.min(1,f)/2-ex*k*Math.min(1,f); if(capTop<10) o.slot.style.translate=`${o.s.dx||0}px ${((o.s.dy||0)+10-capTop).toFixed(1)}px`; } });
+ // подпись не уходит под плеер и за нижний край: длинная строка уменьшается
+ const lim=H-(S.player?H*.125:S.spectrum?H*.095:H*.035);
+ CAP_FIT.forEach(o=>{ const d=o.root.style.display; o.root.style.display=''; o.cap.style.fontSize=o.fs+'px'; for(let i=0;i<4;i++){ const top=o.cap.offsetTop, hh=o.cap.offsetHeight; if(!hh||top+hh<=lim||top>=lim) break; const f=Math.max(.5,(lim-top)/hh); o.cap.style.fontSize=(parseFloat(o.cap.style.fontSize)*Math.sqrt(f)*.98).toFixed(1)+'px'; if(parseFloat(o.cap.style.fontSize)<o.fs*.5) break; } o.root.style.display=d; }); }
 function fitPhone(){ PHONE_FIT.forEach(o=>{ const d=o.root.style.display; o.root.style.display=''; const bw=o.box.offsetWidth, bh=o.box.offsetHeight, k=o.sv(); o.root.style.display=d;
  if(!bw||!bh) return; const f=Math.min(1,(398-30)/(bw*k),(880-22-170)/(bh*k)); o.slot.style.scale=f.toFixed(4); }); }
 function buildScenes(){ SC.forEach((s,k)=>{
@@ -260,7 +270,7 @@ slot=h('div','wslot'); const sc=h('div','wscale'); sc.style.transform=`scale(${s
 const box=h('div',DARK?'dark':''); s.box=box; box.style.position='relative'; const el=fn(s,s.widget,at); let host=el; const tl=s.tilt??S.tilt, pu=s.push??S.push;
 if(tl||pu){ const deg=tl===true?5:(tl||0), ps=pu===true?.05:(pu||0); host=h('div'); host.append(el); tick(t=>{ const q=eio(P(t,s.t0,Math.max(.5,s.t1-s.t0))); host.style.transform=`perspective(1100px) rotateX(${Math.sin(t*.7+s.k)*deg*.6}deg) rotateY(${Math.cos(t*.5+s.k*2)*deg}deg) scale(${1+ps*q})`; }); }
 box.append(host); sc.append(box); slot.append(sc); root.append(slot);
-if(TH==='phone') PHONE_FIT.push({root,slot,box,sv:()=>s.widget.scale??wScale});
+if(TH==='phone') PHONE_FIT.push({root,slot,box,sv:()=>s.widget.scale??wScale}); else CARD_FIT.push({root,slot,sc,s,sv:()=>s.widget.scale??wScale});
 if(s.widget.lyric){ const L=s.widget.lyric===true?{}:s.widget.lyric, sty=L.style||'note', ST={
  note:['#FFFFFF','#0B0B0F','','',''], warn:['#FFF1F0','#B4141B','⚠️','',''], data:['#FFFFFF','#0B0B0F','','ЭКГ · ',''],
  transcript:['#1C1C1E','#FFFFFF','💬','Расшифровка',''], ticker:['linear-gradient(90deg,#4B1F8A,#7A3FC4)','#FFFFFF','💜','Сейчас: ',''],
@@ -311,7 +321,7 @@ if(TRN==='surface'){ if(k<SC.length-1||S.outro) an(box,[{opacity:1,filter:'blur(
 if(s.kinetic && s.ws.length) kinetic(s,root);
 else if(capPos==='kinetic' && s.ws.length && s.caption!==false) kinetic(s,root);
 else if(capPos!=='none' && s.ws.length && s.caption!==false){
-const cw=h('div','abs'); const cap=h('div','cap'); cw.append(cap); cap.style.fontSize=(s.size||capSize)+'px'; cap.style.color=DARK?'#fff':'var(--ink)';
+const cw=h('div','abs'); const cap=h('div','cap'); cw.append(cap); cap.style.fontSize=(s.size||capSize)+'px'; if(capPos==='below') CAP_FIT.push({root,cap,fs:+(s.size||capSize)}); cap.style.color=DARK?'#fff':'var(--ink)';
 if(capPos==='below'){ cap.style.top=(s.widget? H*(s.capY??.575) : H*(s.capY??.6))+'px'; }
 else if(capPos==='top'){ cap.style.top=(H<=760?42:70)+'px'; cap.style.left='7%'; cap.style.right='7%'; cap.style.fontWeight=TH==='dark'?800:700; cap.style.letterSpacing='-.02em'; cap.style.lineHeight=TH==='dark'?'1.12':'1.18'; if(TH==='dark'){ cap.style.textAlign=S.capAlign||'left'; } }
 else if(capPos==='center'){ cap.style.top='42%'; }
@@ -319,7 +329,7 @@ if(TH==='sky'){ const rot=(rnd(s.k*13+3)()-.5)*12; Object.assign(cap.style,{text
 if(S.capGlow) cap.style.filter=S.capGlow===true?'drop-shadow(0 0 8px rgba(255,255,255,.95)) drop-shadow(0 0 2px rgba(255,255,255,.9))':S.capGlow;
 if(S.capFont){ cap.style.fontFamily=`"${S.capFont}","Noto Color Emoji",sans-serif`; cap.style.fontWeight=S.capWeight||900; cap.style.letterSpacing=S.capTrack??'-.01em'; cap.style.lineHeight=S.capLine??'1.1'; }
 let capIn=false; if(S.capAttach&&s.box&&s.caption!=='free'){ const ks=s.widget.scale??wScale, bw=s.box.offsetWidth||460, cwid=W*(S.capWidth??.9)/ks;
-Object.assign(cap.style,{position:'absolute',top:'auto',bottom:`calc(100% + ${(S.capGap??22)/ks}px)`,left:`${(bw-cwid)/2}px`,right:`${(bw-cwid)/2}px`,fontSize:`${(s.size||capSize)/ks}px`,zIndex:4}); s.box.append(cap); capIn=true; }
+Object.assign(cap.style,{position:'absolute',top:'auto',bottom:`calc(100% + ${((S.capGap??22)/ks+(s.box.offsetHeight||300)*((s.push??S.push)===true?.05:(+(s.push??S.push)||0))*.5+6).toFixed(1)}px)`,left:`${(bw-cwid)/2}px`,right:`${(bw-cwid)/2}px`,fontSize:`${(s.size||capSize)/ks}px`,zIndex:4}); s.box.append(cap); s.capEl=cap; capIn=true; }
 const HL=s.hl||{}, EM=s.emoji||{}, ST=(s.strike||[]).map(norm), hs=s.hlStyle||HLS;
 s.ws.forEach((w,i)=>{
 const key=Object.keys(HL).find(x=>norm(w.w).startsWith(norm(x))); const col=key?HL[key]:null;
@@ -359,7 +369,8 @@ const wv=p.querySelector('.wv'); const bars=[...Array(6)].map(()=>{const b=h('i'
 const PB=[3,6,9,12,15,18]; tick(t=>{ const D=S.spec&&S.spec.data; let f=null; if(D){ const M=S.spec.sm||D, k=Math.max(0,Math.min(M.length-1,Math.floor((t-S.spec.t0)*S.spec.fps))); f=M[k]||[]; }
 bars.forEach((b,i)=>{ let v; if(f){ v=cl(((f[PB[i]]||0)-.4)/.55); } else v=.5+.5*Math.sin(t*6+i*1.7)*Math.sin(t*3.1+i*.9); b.style.height=(6+16*v)+'px'; }); }); stage.append(p); IN(p,.1); }
 
-function kinetic(s,root){ const K=s.kinetic||{}, mode=K.mode||s.kin||S.kin||'stack', acc=K.accent||S.accent||'#E10600', ink=K.color||S.ink||(DARK?'#fff':'#111'), Rk=rnd(s.k*31+5), HL=Object.assign({},s.hl||{});
+function kinetic(s,root){ return TH==='phone'?kineticIn(s,root,398,820):kineticIn(s,root,W,H); }
+function kineticIn(s,root,W,H){ const K=s.kinetic||{}, mode=K.mode||s.kin||S.kin||'stack', acc=K.accent||S.accent||'#E10600', ink=K.color||S.ink||(DARK?'#fff':'#111'), Rk=rnd(s.k*31+5), HL=Object.assign({},s.hl||{});
 String(K.words||'').split(/[\s,]+/).filter(Boolean).forEach(x=>HL[x]=true);
 const FF=K.font?`"${K.font}","Inter Display","Noto Color Emoji"`:'"Inter Display","Noto Color Emoji"', FW=K.weight||900, sz=K.size?+K.size:0;
 const accOf=w=>{ const k=Object.keys(HL).find(x=>norm(w.w).startsWith(norm(x))); if(!k) return null; const c=HL[k]; return Array.isArray(c)?c[1]:(c===true?acc:c); };
@@ -1134,6 +1145,6 @@ if(S.outro){ const O=S.outro, t0=O.t0, t1=S.end??S.duration; if(t1-t0>.4){ const
  if(O.artist){ const a=h('div','',O.artist,`font:800 ${Math.round(W*.05)}px/1 Inter;margin-top:${Math.round(fs*.4)}px`); col.append(a); IN(a,t0+.75,{y:12,b:8,d:.4}); }
  if(O.sub){ const b=h('div','',O.sub,`margin-top:${Math.round(fs*.25)}px;background:${IO_ACC};color:#fff;border-radius:999px;padding:${Math.round(W*.018)}px ${Math.round(W*.05)}px;font:800 ${Math.round(W*.036)}px/1 Inter`); col.append(b); POP(b,t0+.95,.45); an(b,[{transform:'scale(1)'},{transform:'scale(1.06)'},{transform:'scale(1)'}],t0+1.6,.5); } } }
 window.SCENES=SC.map(s=>({t0:s.t0,t1:s.t1,last:s.ws.length?s.ws[s.ws.length-1].t:s.t0}));
-if(TH==='phone'){ fitPhone(); if(document.fonts) document.fonts.ready.then(fitPhone); }
+if(TH==='phone'){ fitPhone(); if(document.fonts) document.fonts.ready.then(fitPhone); } else { fitCards(); if(document.fonts) document.fonts.ready.then(fitCards); }
 window.READY=true;
 </script></body></html>

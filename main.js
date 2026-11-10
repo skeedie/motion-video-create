@@ -41,8 +41,14 @@ function log(...a) {
 }
 process.on('uncaughtException', e => { log('uncaughtException', e); try { fs.writeFileSync(UD('running.flag'), JSON.stringify({ time: Date.now(), version: app.getVersion(), reason: String(e && e.message || e).slice(0, 200) })); } catch (x) {} });
 process.on('unhandledRejection', e => log('unhandledRejection', e));
+// Операции, которые пользователь может остановить. Флаг отмены сбрасывается только когда запускается новая операция,
+// а других в работе нет, и когда закончилась последняя: фоновый разбор битов больше не «съедает» нажатие «остановить»,
+// а старая отмена не обрывает следующую загрузку модели.
+const CANCELLABLE = new Set(['align', 'transcribe', 'removeBg', 'modelGet', 'installUpdate']); let userOps = 0;
 const handle = (name, fn) => ipcMain.handle(name, async (...a) => {
+  const op = CANCELLABLE.has(name); if (op && !userOps++) modelCancel = false;
   try { return await fn(...a); } catch (e) { if (e && e.message !== '__cancel') log(`ошибка в ${name}:`, e); throw e; }
+  finally { if (op && !--userOps) modelCancel = false; }
 });
 
 function createWindow() {
@@ -286,12 +292,12 @@ handle('installUpdate', async (ev, info) => {
   const portableExe = process.env.PORTABLE_EXECUTABLE_FILE;
   if (portableExe) {
     const dest = path.join(path.dirname(portableExe), `LyricStudio-Portable-${info.version}.exe`);
-    modelCancel = false; await download(info.portable.url, dest, 'обновление', progress, info.portable.sha || null);
+    await download(info.portable.url, dest, 'обновление', progress, info.portable.sha || null);
     shell.showItemInFolder(dest);
     return { portable: true, path: dest };
   }
   const dest = path.join(os.tmpdir(), `LyricStudio-Setup-${info.version}.exe`);
-  modelCancel = false; await download(info.setup.url, dest, 'обновление', progress, info.setup.sha || null);
+  await download(info.setup.url, dest, 'обновление', progress, info.setup.sha || null);
   log('запускаю установщик', dest);
   try { await Promise.race([mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
   // установщик стартует, когда эта программа уже полностью закрылась
@@ -418,7 +424,7 @@ async function vocalsFile(audioPath, from, to, progress, quality) {
 }
 // синхронизация готового текста (align) и распознавание текста с трека (transcribe) идут одним путём
 async function runModel(ev, args, what) {
-  modelCancel = false; const progress = t => { guard(); send(ev, 'progress:align', t); }, en = args.lang === 'en';
+  const progress = t => { guard(); send(ev, 'progress:align', t); }, en = args.lang === 'en';
   let audioPath = args.audioPath, from = args.from, to = args.to, offset = null, tmp = null;
   if (args.vocals) { const r = await vocalsFile(args.audioPath, args.from, args.to, progress, args.vocalsQ); tmp = audioPath = r.file; offset = r.offset; from = null; to = null; }
   const fn = what === 'transcribe' ? A.transcribe : A.align;
@@ -576,7 +582,7 @@ function decodeMean22k(file) {
 }
 const BEAT_CACHE = () => UD('beatcache');
 handle('netBeats', async (ev, a) => {
-  modelCancel = false; const st = fs.statSync(a.audioPath), key = require('crypto').createHash('md5').update(a.audioPath + '|' + st.size + '|' + st.mtimeMs).digest('hex'), cf = path.join(BEAT_CACHE(), key + '.json');
+  const st = fs.statSync(a.audioPath), key = require('crypto').createHash('md5').update(a.audioPath + '|' + st.size + '|' + st.mtimeMs).digest('hex'), cf = path.join(BEAT_CACHE(), key + '.json');
   try { const c = JSON.parse(fs.readFileSync(cf, 'utf8')); return { beat: Float32Array.from(c.beat), down: Float32Array.from(c.down), fps: c.fps }; } catch (e) {}
   const [file] = await ensureM2('beat'), { ort, s } = await getSession(file);
   const t0 = Date.now(), x = await decodeMean22k(a.audioPath), F = await N.beatFeaturesAsync(x);
@@ -588,7 +594,7 @@ handle('netBeats', async (ev, a) => {
 
 // ---------- вырезать фон с картинки ----------
 handle('removeBg', async (ev, a) => {
-  modelCancel = false; const progress = t => { guard(); send(ev, 'progress:bg', t); };
+  const progress = t => { guard(); send(ev, 'progress:bg', t); };
   let img = nativeImage.createFromDataURL(a.dataUrl); if (img.isEmpty()) throw new Error('не удалось открыть картинку');
   let { width: w, height: h } = img.getSize(); const k = Math.min(1, 1600 / Math.max(w, h));
   if (k < 1) { img = img.resize({ width: Math.round(w * k), height: Math.round(h * k), quality: 'best' }); ({ width: w, height: h } = img.getSize()); }
@@ -615,7 +621,7 @@ const MODELS = () => [
 ];
 handle('modelsInfo', async () => MODELS().map(m => { let size = 0, have = true; for (const f of m.files) { try { size += fs.statSync(f).size; } catch (e) { have = false; } } return { key: m.key, name: m.name, have, size, mb: m.mb }; }));
 handle('modelDelete', async (ev, key) => { const m = MODELS().find(x => x.key === key); if (!m) return false; for (const f of m.files) { await dropSession(f); try { fs.unlinkSync(f); } catch (e) {} } return true; });
-handle('modelGet', async (ev, key) => { const m = MODELS().find(x => x.key === key); if (!m) return false; modelCancel = false; await m.get(t => { guard(); send(ev, 'progress:models', t); }); return true; });
+handle('modelGet', async (ev, key) => { const m = MODELS().find(x => x.key === key); if (!m) return false; await m.get(t => { guard(); send(ev, 'progress:models', t); }); return true; });
 // ---------- текстовые файлы: тайминги LRC / SRT ----------
 handle('saveText', async (ev, text, name, ext, title) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr(title || 'Сохранить файл'), defaultPath: name + '.' + ext, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });

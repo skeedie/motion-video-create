@@ -770,11 +770,12 @@ function splitScene(atTime) {
 }
 function sceneLook(sc) {
   const rel = v => v === '' || v == null ? '' : (+v - sc.a);
-  return JSON.parse(JSON.stringify({ tpl: sc.tpl, f: sc.f, scale: sc.scale, stamp: sc.stamp, fx: sc.fx, bump: rel(sc.bump), stampAt: rel(sc.stampAt), fxAt: rel(sc.fxAt), trans: sc.trans || '', cam: sc.cam || '', tpl2: sc.tpl2 || '', f2: sc.f2 || {}, dx: sc.dx || 0, dy: sc.dy || 0, dx2: sc.dx2 || 0, dy2: sc.dy2 || 0 }));
+  return JSON.parse(JSON.stringify({ tpl: sc.tpl, f: sc.f, scale: sc.scale, stamp: sc.stamp, fx: sc.fx, bump: rel(sc.bump), stampAt: rel(sc.stampAt), fxAt: rel(sc.fxAt), trans: sc.trans || '', cam: sc.cam || '', tpl2: sc.tpl2 || '', f2: sc.f2 || {}, dx: sc.dx || 0, dy: sc.dy || 0, dx2: sc.dx2 || 0, dy2: sc.dy2 || 0, accents: (sc.accents || []).map(a => Object.assign({}, a, { at: rel(a.at) })) }));
 }
 function applyLook(sc, L) {
   const abs = v => v === '' || v == null ? '' : (sc.a + +v < sc.b ? sc.a + +v : '');
   Object.assign(sc, { tpl: L.tpl, f: JSON.parse(JSON.stringify(L.f || {})), scale: L.scale, stamp: L.stamp, fx: L.fx, bump: abs(L.bump), stampAt: abs(L.stampAt), fxAt: abs(L.fxAt), trans: L.trans || '', cam: L.cam || '', tpl2: L.tpl2 || '', f2: JSON.parse(JSON.stringify(L.f2 || {})), dx: L.dx || 0, dy: L.dy || 0, dx2: L.dx2 || 0, dy2: L.dy2 || 0 });
+  if (L.accents && L.accents.length) sc.accents = L.accents.map(a => Object.assign({}, a, { at: abs(a.at) === '' ? '' : String(abs(a.at)) })); else delete sc.accents;
 }
 function targets() { return msel.size > 1 ? [...msel].sort((a, b) => a - b) : [sel]; }
 function copyLook() { const sc = proj.scenes[sel]; if (!sc) return; clip = sceneLook(sc); toast('Вид сцены скопирован — выделите сцены и нажмите Ctrl+V', 2600); }
