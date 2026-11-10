@@ -1,0 +1,52 @@
+name: Модели v2 (биты, распознавание, вокал, фон)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/models2.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Скачать модели с Hugging Face и GitHub
+        run: |
+          set -e
+          pip install -q "huggingface_hub>=0.24"
+          mkdir -p out info
+          python - <<'PY'
+          import os, shutil, json
+          from huggingface_hub import list_repo_files, hf_hub_download
+          def grab(repo, names, rename=None):
+              files = list_repo_files(repo)
+              print(repo, files)
+              open(f'info/{repo.replace("/","__")}.txt','w').write('\n'.join(files))
+              for n in names:
+                  if n not in files:
+                      print('НЕТ ФАЙЛА', repo, n); continue
+                  p = hf_hub_download(repo, n)
+                  dst = 'out/' + (rename or {}).get(n, n.split('/')[-1])
+                  shutil.copy(p, dst); print('ok', dst, os.path.getsize(dst))
+          # Beat This! (MIT) — основная и малая модели + описание входа
+          grab('musetric/beat-this-onnx', ['beat_this.onnx', 'config.json', 'README.md'], {'beat_this.onnx': 'beat_this_final0.onnx', 'config.json': 'beat_this_config.json', 'README.md': 'beat_this_README.md'})
+          grab('ashudesai/songbird-models', ['small0.onnx', 'README.md'], {'small0.onnx': 'beat_this_small0.onnx', 'README.md': 'beat_this_small_README.md'})
+          # GigaAM v3 (MIT) — e2e CTC: текст с пунктуацией
+          fs = list_repo_files('istupakov/gigaam-v3-onnx')
+          want = [f for f in fs if f.startswith('v3_e2e_ctc') or f in ('config.json', 'README.md')]
+          grab('istupakov/gigaam-v3-onnx', want, {'config.json': 'gigaam_v3_config.json', 'README.md': 'gigaam_v3_README.md'})
+          # HT-Demucs FT, вокал (MIT)
+          fs = list_repo_files('StemSplitio/htdemucs-ft-vocals-onnx')
+          grab('StemSplitio/htdemucs-ft-vocals-onnx', [f for f in fs if f.endswith(('.onnx', '.json', '.md', '.data'))], {f: 'htdemucs_ft_vocals_' + f.split('/')[-1] for f in fs})
+          PY
+          # BiRefNet lite (MIT) — зеркало из релиза rembg
+          curl -sSL -o out/birefnet_lite.onnx https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx
+          ls -la out info
+          for f in out/*.json out/*.md info/*.txt; do echo "===== $f"; head -c 6000 "$f"; echo; done
+      - name: Релиз с файлами моделей
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: models-v2
+          name: Модели v2 (служебный релиз)
+          body: "Beat This! (MIT), GigaAM v3 e2e CTC (MIT), HT-Demucs FT vocals (MIT), BiRefNet lite (MIT). Программа скачивает нужные файлы сама при первом использовании."
+          files: out/*
