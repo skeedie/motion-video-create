@@ -2,8 +2,10 @@ name: Проверка экспорта на Windows
 on:
   push:
     branches: ['**']
-    paths: ['main.js', 'preload.js', 'app/engine.html', 'app/app.js', '.github/workflows/export-test.yml']
+    paths: ['main.js', 'dev/ci_exp.js', 'preload.js', 'app/engine.html', 'app/app.js', '.github/workflows/export-test.yml']
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   export:
     runs-on: windows-latest
@@ -36,10 +38,21 @@ jobs:
         shell: bash
         env:
           LS_CI_OUT: ${{ github.workspace }}\ci-out
+          LS_CI_EXP: '1'
         run: |
           npx electron . ; code=$?
           cat ci-out/report.json || true
           exit $code
+      - name: Кадры в служебную ветку (чтобы их можно было посмотреть)
+        if: always()
+        shell: bash
+        run: |
+          cd ci-out || exit 0
+          rm -f *.mp4 *.wav
+          git init -q . && git checkout -q -b ci-out
+          git config user.name ci && git config user.email ci@users.noreply.github.com
+          git add -A && git commit -qm "кадры проверки ${{ github.sha }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-out
       - name: Результат
         if: always()
         uses: actions/upload-artifact@v4

@@ -7,6 +7,8 @@
   const T = [];
   const add = (t) => T.push(t);
   const F = (k, label, def, type = 'text', opts) => ({ k, label, def, type, opts });
+  // градиент аватарки из одного цвета; если цвет не задан (старый проект) — прежний градиент шаблона
+  const GRAD = (c, def) => /^#[0-9a-f]{6}$/i.test(c || '') ? `linear-gradient(180deg,${c}99,${c})` : def;
   const STRIP = F('strip', 'Текст строки', 'auto', 'select', ['auto', 'note', 'ticker', 'transcript', 'status', 'warn', 'search', 'data', 'none']);
   const strip = (f, def, extra = {}) => {
     const s = f.strip === 'auto' || !f.strip ? def : f.strip;
@@ -21,22 +23,22 @@
       msgs: [{ me: true, text: c.part(0, 2), at: c.at(0, 2) }, { me: true, text: c.part(1, 2), at: c.at(1, 2) }].concat(f.reply ? [{ text: f.reply, at: 'end-0.5' }] : []) } }) });
 
   add({ id: 'tg-her', name: 'Telegram: пишет она', cat: 'Переписка', lines: 2,
-    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('status', 'Статус', 'в сети'), F('time', 'Время', '03:12'), F('img', 'Фото (вместо эмодзи)', '', 'image')],
-    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: { emoji: f.emoji, img: f.img || undefined, color: 'linear-gradient(180deg,#FF8FB1,#FF2D55)' }, status: f.status, typing_until: 'start', height: 420, scale: 1.3,
+    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('status', 'Статус', 'в сети'), F('time', 'Время', '03:12'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image')],
+    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: { emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, status: f.status, typing_until: 'start', height: 420, scale: 1.3,
       msgs: [{ text: c.part(0, 2), at: c.at(0, 2), time: f.time }, { text: c.part(1, 2), at: c.at(1, 2), time: f.time }] } }) });
 
   add({ id: 'tg-group', name: 'Telegram: групповой чат', cat: 'Переписка', lines: 1,
     fields: [F('name', 'Название чата', 'houmie 🌿'), F('emoji', 'Аватар', '🌿', 'emoji'),
       F('n1', 'Друг 1', 'leartz'), F('m1', 'Сообщение 1', 'а скок раз мы уже дунули?'),
       F('n2', 'Друг 2', 'vissking'), F('m2', 'Сообщение 2', 'бро, где-то 432 раза за неделю'),
-      F('n3', 'Друг 3', '432hz'), F('m3', 'Сообщение 3', 'пора бы бросать ваще.'), F('img', 'Фото чата', '', 'image')],
-    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: { emoji: f.emoji, img: f.img || undefined, color: 'linear-gradient(180deg,#9BE15D,#00B36B)' }, status: 'участников: 4', typing_until: 'start', height: 470, scale: 1.3,
+      F('n3', 'Друг 3', '432hz'), F('m3', 'Сообщение 3', 'пора бы бросать ваще.'), F('color', 'Цвет аватара', '#00B36B', 'color'), F('img', 'Фото чата', '', 'image')],
+    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: { emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#9BE15D,#00B36B)') }, status: 'участников: 4', typing_until: 'start', height: 470, scale: 1.3,
       msgs: [[f.n1, f.m1, '#E0567A'], [f.n2, f.m2, '#2A9DF4'], [f.n3, f.m3, '#8B3DFF']].filter(x => x[1]).map(x => ({ from: x[0], fromColor: x[2], text: x[1], at: { t: 0 }, time: '04:20' }))
         .concat([{ me: true, text: c.all, at: c.at(0, 1), time: '04:21' }]) } }) });
 
   add({ id: 'tg-feed', name: 'Telegram: прокрутка по дням', cat: 'Переписка', lines: 1,
-    fields: [F('name', 'Контакт', 'Она 💕'), F('texts', 'Сообщения по кругу (через |)', 'ты дурак!|ты дурак!!|дурак 🙄'), F('react', 'Реакция', '🤡', 'emoji'), F('img', 'Фото (вместо эмодзи)', '', 'image'), STRIP],
-    make: (f, c) => ({ widget: { type: 'tgfeed', name: f.name, avatar: { emoji: '💕', img: f.img || undefined, color: 'linear-gradient(180deg,#FF8FB1,#FF2D55)' }, status: 'в сети', texts: f.texts.split('|'), at: c.word(0), dur: 1.1,
+    fields: [F('name', 'Контакт', 'Она 💕'), F('texts', 'Сообщения по кругу (через |)', 'ты дурак!|ты дурак!!|дурак 🙄'), F('react', 'Реакция', '🤡', 'emoji'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), STRIP],
+    make: (f, c) => ({ widget: { type: 'tgfeed', name: f.name, avatar: { emoji: f.emoji || '💕', img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, status: 'в сети', texts: f.texts.split('|'), at: c.word(0), dur: 1.1,
       accent_at: c.word(Math.floor(c.n / 2)), react: f.react, react_at: c.word(Math.max(0, c.n - 2)), height: 380, scale: 1.3, lyric: strip(f, 'note', { icon: '🙄' }) } }) });
 
   add({ id: 'notifs', name: 'Экран блокировки + уведомления', cat: 'Переписка', lines: 2,
@@ -46,8 +48,8 @@
       items: [{ app: f.app1, icon: f.ic1, color: '#FF9F0A', text: c.part(0, 2), at: c.at(0, 2) }, { app: f.app2, icon: f.ic2, color: '#2AABEE', title: f.title2 || undefined, text: c.part(1, 2), at: c.at(1, 2) }] } }) });
 
   add({ id: 'call', name: 'Входящий звонок', cat: 'Переписка', lines: 2,
-    fields: [F('name', 'Кто звонит', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('sub', 'Подпись', 'входящий вызов'), F('after', 'Подпись после ответа', 'соединение…'), F('img', 'Фото (вместо эмодзи)', '', 'image'), STRIP],
-    make: (f, c) => ({ widget: { type: 'call', style: 'card', name: f.name, sub: f.sub, avatar: { emoji: f.emoji, img: f.img || undefined, color: 'linear-gradient(180deg,#FF8FB1,#FF2D55)' }, decline: 'Позже', at: c.word(0),
+    fields: [F('name', 'Кто звонит', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('sub', 'Подпись', 'входящий вызов'), F('after', 'Подпись после ответа', 'соединение…'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), STRIP],
+    make: (f, c) => ({ widget: { type: 'call', style: 'card', name: f.name, sub: f.sub, avatar: { emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, decline: 'Позже', at: c.word(0),
       end: { at: c.word(Math.max(0, c.n - 1)), action: 'accept', sub: f.after }, scale: 1.3, lyric: strip(f, 'status', { icon: '📞' }) } }) });
 
   add({ id: 'typing', name: 'Тёмная карточка: печатает строку', cat: 'Переписка', lines: 1,
@@ -186,14 +188,14 @@
       title: c.part(0, 2), sub: c.part(1, 2), button: f.button, at: c.word(0), end_at: 'end-0.3', move_at: c.word(0), move_dur: 2.4, scale: 1.3 } }) });
 
   // ---------- 0.2: новые шаблоны ----------
-  const AV = (f, emoji, color) => ({ emoji: f.emoji || emoji, img: f.img || undefined, color });
+  const AV = (f, emoji, color) => ({ emoji: f.emoji || emoji, img: f.img || undefined, color: GRAD(f.color, color) });
   add({ id: 'imsg-dialog', name: 'iMessage: диалог (она → я)', cat: 'Переписка', lines: 2,
-    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('img', 'Фото (вместо эмодзи)', '', 'image'), F('status', 'Подпись под моим', 'Прочитано')],
+    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), F('status', 'Подпись под моим', 'Прочитано')],
     make: (f, c) => ({ widget: { type: 'chat', name: f.name, avatar: AV(f, '💕', 'linear-gradient(180deg,#FF8FB199,#FF2D55)'), height: 420, scale: 1.27,
       msgs: [{ text: c.part(0, 2), at: c.at(0, 2) }, { me: true, text: c.part(1, 2), at: c.at(1, 2), status: f.status || undefined, status_at: 'end-0.9' }] } }) });
 
   add({ id: 'callfull', name: 'Звонок на весь экран', cat: 'Переписка', lines: 1,
-    fields: [F('name', 'Кто звонит', 'Мама ❤️'), F('sub', 'Подпись', 'мобильный'), F('emoji', 'Аватар', '👩', 'emoji'), F('img', 'Фото (вместо эмодзи)', '', 'image'),
+    fields: [F('name', 'Кто звонит', 'Мама ❤️'), F('sub', 'Подпись', 'мобильный'), F('emoji', 'Аватар', '👩', 'emoji'), F('color', 'Цвет аватара', '#FF5C8A', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'),
       F('accept', 'Ответить в конце', true, 'bool'), STRIP],
     make: (f, c) => ({ widget: { type: 'callfull', name: f.name, sub: f.sub, avatar: AV(f, '👩', 'linear-gradient(180deg,#FFB1C8,#FF5C8A)'), accept_at: f.accept ? c.word(Math.max(0, c.n - 1)) : undefined, scale: 0.92,
       lyric: strip(f, 'status', { icon: '📞' }) } }) });

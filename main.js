@@ -71,6 +71,7 @@ async function ciRun(dir) {
         fs.writeFileSync(path.join(dir, name), png.data); rep.frames.push({ name, want: [outW, outH], got: png.size, info: png.info });
       } catch (e) { rep.errors.push(name + ': ' + (e.stack || e.message)); }
     }
+    if (process.env.LS_CI_EXP) { try { const job = await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16')`); JOB_HTML = job.html; await require('./dev/ci_exp.js')(dir, job, rep); } catch (e) { rep.errors.push('exp: ' + (e.stack || e.message)); } }
     try {
       const job = await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16')`), wav = path.join(dir, 'silence.wav'), out = path.join(dir, 'export-1080.mp4');
       await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '4', wav]);
