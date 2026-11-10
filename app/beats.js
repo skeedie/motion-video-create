@@ -47,5 +47,37 @@
     bpm = +bpm.toFixed(1); if (Math.abs(bpm - Math.round(bpm)) < 0.15) bpm = Math.round(bpm);
     return { bpm, auto: !fixed, alt: [+(bpm / 2).toFixed(1), +(bpm * 2).toFixed(1)], beats: out.map(b => +(b + 0.005).toFixed(3)), env, fps: F };
   }
-  window.Beats = { detect };
+  // биты по ответу нейросети Beat This! (логиты бита и сильной доли, 50 кадров/с):
+  // темп — по медиане интервалов между уверенными пиками, сетка — тем же динамическим программированием, сильные доли — по сети
+  function fromNet(beatLogit, downLogit, fps, opts = {}, base = {}) {
+    const n = beatLogit.length, sig = v => 1 / (1 + Math.exp(-v)), on = new Float32Array(n), dn = new Float32Array(n);
+    for (let i = 0; i < n; i++) { on[i] = sig(beatLogit[i]); dn[i] = sig(downLogit[i]); }
+    const peaks = a => { const p = []; for (let i = 0; i < a.length; i++) { if (a[i] <= 0.5) continue; let m = true; for (let k = -3; k <= 3; k++) { const j = i + k; if (j >= 0 && j < a.length && a[j] > a[i]) { m = false; break; } } if (m) { if (p.length && i - p[p.length - 1] <= 1) p[p.length - 1] = (p[p.length - 1] + i) / 2; else p.push(i); } } return p; };
+    const pk = peaks(on); if (pk.length < 4 && !opts.bpm) return null;
+    const ibi = pk.slice(1).map((b, i) => b - pk[i]).filter(d => d > fps * 60 / 220 && d < fps * 60 / 50).sort((a, b) => a - b);
+    const fixed = opts.bpm && opts.bpm >= 30 && opts.bpm <= 300, P = fixed ? 60 * fps / opts.bpm : ibi[ibi.length >> 1], alpha = fixed ? 900 : 500;
+    if (!P) return null;
+    const score = new Float32Array(n), back = new Int32Array(n).fill(-1);
+    for (let t = 0; t < n; t++) {
+      let mx = 0, arg = -1; const a = t - Math.round(2 * P), b = t - Math.round(P / 2);
+      for (let p = Math.max(0, a); p <= b; p++) { const r = Math.log((t - p) / P), v = score[p] - alpha * r * r; if (v > mx || arg < 0) { mx = v; arg = p; } }
+      score[t] = (on[t] - 0.03) + (arg >= 0 ? mx : 0); back[t] = arg;
+    }
+    let t = 0, m = -1e9; for (let k = Math.max(0, Math.round(n - 2 * P)); k < n; k++) if (score[k] > m) { m = score[k]; t = k; }
+    const bf = []; while (t >= 0) { bf.push(t); t = back[t]; } bf.reverse();
+    // биты в тишине до начала и после конца музыки — убрать
+    const loud = i => { let s = 0; for (let k = -2; k <= 2; k++) s = Math.max(s, on[Math.min(n - 1, Math.max(0, i + k))]); return s; };
+    let a0 = 0, a1 = bf.length - 1; while (a0 < a1 && loud(bf[a0]) < 0.05) a0++; while (a1 > a0 && loud(bf[a1]) < 0.05) a1--;
+    const beatsF = bf.slice(a0, a1 + 1), beats = beatsF.map(f => +(f / fps).toFixed(3));
+    // сильные доли: пики сети, привязанные к ближайшему биту; пропуски больше такта заполняем шагом в 4 доли
+    const dIdx = [];
+    for (const d of peaks(dn)) { let bi = 0, bd = 1e9; for (let i = 0; i < beatsF.length; i++) { const x = Math.abs(beatsF[i] - d); if (x < bd) { bd = x; bi = i; } } if (bd < P * 0.5 && (!dIdx.length || bi - dIdx[dIdx.length - 1] >= 2)) dIdx.push(bi); }
+    const full = []; if (dIdx.length) { let cur = dIdx[0]; while (cur - 4 >= 0) cur -= 4; for (const d of dIdx) { while (cur <= d - 2) { full.push(cur); cur += 4; } full.push(d); cur = d + 4; } while (cur < beatsF.length) { full.push(cur); cur += 4; } }
+    const downbeats = full.filter(i => i < beats.length).map(i => beats[i]);
+    let bpm = 60 * fps / P;
+    if (!fixed && beats.length > 8) { const k = beats.length, mxv = (k - 1) / 2, my = beats.reduce((x, y) => x + y, 0) / k; let sxy = 0, sxx = 0; beats.forEach((b, i) => { sxy += (i - mxv) * (b - my); sxx += (i - mxv) * (i - mxv); }); const per = sxy / sxx; if (per > 0.25 && per < 1.3 && Math.abs(60 / per - bpm) / bpm < 0.04) bpm = 60 / per; }
+    bpm = +bpm.toFixed(1); if (Math.abs(bpm - Math.round(bpm)) < 0.15) bpm = Math.round(bpm);
+    return { bpm, auto: !fixed, neural: true, alt: [+(bpm / 2).toFixed(1), +(bpm * 2).toFixed(1)], beats, downbeats, env: base.env, fps: base.fps };
+  }
+  window.Beats = { detect, fromNet };
 })();

@@ -225,8 +225,10 @@ const scr=h('div','screen'); cam.append(scr);
 scr.style.background='radial-gradient(circle at 20% 15%,#1fb6c9 0%,#1fb6c900 45%),radial-gradient(circle at 80% 40%,#3b5bfd 0%,#3b5bfd00 55%),radial-gradient(circle at 30% 85%,#7c3aed 0%,#7c3aed00 55%),#151a5c';
 scr.append(h('div','dyn')); scr.append(h('div','sbar',`<span>${S.clock||'9:41'}</span><span style="font-size:13px;letter-spacing:2px">●●● ▲ ▮</span>`));
 screenEl=h('div','abs'); scr.append(screenEl);
-const POSES=S.poses||[[28,-10,-12,1.55,-20,0],[22,12,9,1.6,30,0],[16,-16,-6,1.7,-10,0],[30,6,12,1.5,20,0],[12,-8,-4,1.75,0,0]];
-const FOC={top:.3,center:0,bottom:-.3};
+// телефон целиком в кадре: масштаб и наклоны умеренные, фокус на верх/низ экрана — небольшой сдвиг
+const PK=Math.min(W/720,H/1280)*(H>W?1:.78);
+const POSES=S.poses||[[14,-8,-6,1.33,-8,0],[11,9,5,1.35,10,0],[8,-10,-4,1.37,-6,0],[15,6,6,1.32,8,0],[6,-6,-3,1.38,0,0]].map(p=>[p[0],p[1],p[2],p[3]*PK,p[4],p[5]]);
+const FOC={top:.05,center:0,bottom:-.05};
 let prev=null;
 SC.forEach((s,k)=>{const p0=s.pose||POSES[k%POSES.length]; const f=s.focus||(s.widget&&s.widget.align==='flex-end'?'bottom':s.widget&&s.widget.align==='flex-start'?'top':'center'); const p=[...p0]; p[5]=p0[5]+(FOC[f]??0)*880*p0[3]; const tf=q=>`translate(${q[4]}px,${q[5]}px) rotateX(${q[0]}deg) rotateY(${q[1]}deg) rotateZ(${q[2]}deg) scale(${q[3]})`;
 if(!prev) an(cam,[{transform:tf(p)},{transform:tf(p)}],0,.01); else an(cam,[{transform:tf(prev)},{transform:tf(p)}],s.t0-.15,1.0,'cubic-bezier(.65,0,.35,1)'); prev=p;});
@@ -240,6 +242,10 @@ const wScale = S.widgetScale || (TH==='cards'||TH==='dark'?(H<=760?1.16:1.22):TH
 const TR_IN={slide:{d:.42,x:W*.62,y:-30,s:.5,b:5,r:6,e:'cubic-bezier(.16,1,.3,1)'},crisp:{d:.28,y:46,b:3,s:.9},zoom:{d:.38,y:0,s:.42,b:10,e:'cubic-bezier(.16,1,.3,1)'},whip:{d:.3,x:W*.9,y:0,s:1,b:22,e:'cubic-bezier(.2,.9,.1,1)'},drop:{d:.55,y:-H*.55,s:1,b:4,r:-4,e:'cubic-bezier(.34,1.45,.64,1)'}};
 const TR_OUT={slide:{d:.3,x:-W*.62,y:-20,s:.5,b:5,r:-6,e:'cubic-bezier(.7,0,.84,0)'},crisp:{d:.14,b:3,s:.93,y:-36},zoom:{d:.24,s:1.75,b:16,e:'cubic-bezier(.7,0,.84,0)'},whip:{d:.2,x:-W*.9,b:22,s:1,e:'cubic-bezier(.7,0,.9,.4)'},drop:{d:.3,y:H*.6,r:6,b:4,s:1,e:'cubic-bezier(.6,0,.9,.5)'}};
 const TR_LEAD={slide:.12,crisp:.14,zoom:.2,whip:.16,drop:.24};
+// виджет на экране телефона не должен быть шире и выше экрана — уменьшаем, если не влезает
+const PHONE_FIT=[];
+function fitPhone(){ PHONE_FIT.forEach(o=>{ const d=o.root.style.display; o.root.style.display=''; const bw=o.box.offsetWidth, bh=o.box.offsetHeight, k=o.sv(); o.root.style.display=d;
+ if(!bw||!bh) return; const f=Math.min(1,(398-30)/(bw*k),(880-22-170)/(bh*k)); o.slot.style.scale=f.toFixed(4); }); }
 function buildScenes(){ SC.forEach((s,k)=>{
 const root=h('div','abs'); (screenEl||stage).append(root); s.el=root;
 const at=mkAt(s); s.at=at;
@@ -254,6 +260,7 @@ slot=h('div','wslot'); const sc=h('div','wscale'); sc.style.transform=`scale(${s
 const box=h('div',DARK?'dark':''); s.box=box; box.style.position='relative'; const el=fn(s,s.widget,at); let host=el; const tl=s.tilt??S.tilt, pu=s.push??S.push;
 if(tl||pu){ const deg=tl===true?5:(tl||0), ps=pu===true?.05:(pu||0); host=h('div'); host.append(el); tick(t=>{ const q=eio(P(t,s.t0,Math.max(.5,s.t1-s.t0))); host.style.transform=`perspective(1100px) rotateX(${Math.sin(t*.7+s.k)*deg*.6}deg) rotateY(${Math.cos(t*.5+s.k*2)*deg}deg) scale(${1+ps*q})`; }); }
 box.append(host); sc.append(box); slot.append(sc); root.append(slot);
+if(TH==='phone') PHONE_FIT.push({root,slot,box,sv:()=>s.widget.scale??wScale});
 if(s.widget.lyric){ const L=s.widget.lyric===true?{}:s.widget.lyric, sty=L.style||'note', ST={
  note:['#FFFFFF','#0B0B0F','','',''], warn:['#FFF1F0','#B4141B','⚠️','',''], data:['#FFFFFF','#0B0B0F','','ЭКГ · ',''],
  transcript:['#1C1C1E','#FFFFFF','💬','Расшифровка',''], ticker:['linear-gradient(90deg,#4B1F8A,#7A3FC4)','#FFFFFF','💜','Сейчас: ',''],
@@ -1123,5 +1130,6 @@ if(S.outro){ const O=S.outro, t0=O.t0, t1=S.end??S.duration; if(t1-t0>.4){ const
  if(O.artist){ const a=h('div','',O.artist,`font:800 ${Math.round(W*.05)}px/1 Inter;margin-top:${Math.round(fs*.4)}px`); col.append(a); IN(a,t0+.75,{y:12,b:8,d:.4}); }
  if(O.sub){ const b=h('div','',O.sub,`margin-top:${Math.round(fs*.25)}px;background:${IO_ACC};color:#fff;border-radius:999px;padding:${Math.round(W*.018)}px ${Math.round(W*.05)}px;font:800 ${Math.round(W*.036)}px/1 Inter`); col.append(b); POP(b,t0+.95,.45); an(b,[{transform:'scale(1)'},{transform:'scale(1.06)'},{transform:'scale(1)'}],t0+1.6,.5); } } }
 window.SCENES=SC.map(s=>({t0:s.t0,t1:s.t1,last:s.ws.length?s.ws[s.ws.length-1].t:s.t0}));
+if(TH==='phone'){ fitPhone(); if(document.fonts) document.fonts.ready.then(fitPhone); }
 window.READY=true;
 </script></body></html>

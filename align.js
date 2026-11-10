@@ -172,6 +172,25 @@ async function transcribe(opts) {
   return { words, duration: null };
 }
 
+// распознавание русского через GigaAM v3 (e2e CTC): слова с пунктуацией; склеенные «слово.Слово» разделяем
+async function transcribeV3(opts) {
+  const N = require('./neural'), P = opts.progress || (() => {});
+  P('Читаю звук…');
+  const off = opts.offset != null ? +opts.offset : opts.from != null ? +opts.from : 0;
+  const x = await load16k(opts.ffmpeg, opts.audioPath, opts.from, opts.to);
+  P('Считаю спектр…'); const F = N.gigaV3Features(x);
+  P('Распознаю слова (нейросеть)…'); const L = await logprobs(F, opts.runChunk);
+  const raw = N.decodeBpeWords(L.data, L.T2, L.V, N.readVocab(opts.vocab), x.length / 16000 / L.T2, off), words = [];
+  for (const w of raw) {
+    const parts = w.w.split(/(?<=[.,!?;:…])(?=[\p{L}\p{N}])/u);
+    if (parts.length === 1) { words.push(w); continue; }
+    const tot = parts.reduce((s, p) => s + p.length, 0); let acc = 0;
+    for (const p of parts) { const a = w.t + (w.e0 - w.t) * acc / tot; acc += p.length; const b = w.t + (w.e0 - w.t) * acc / tot; words.push({ w: p, t: +a.toFixed(3), e: +Math.max(b, a + 0.12).toFixed(3), e0: +b.toFixed(3), conf: w.conf }); }
+  }
+  if (!words.length) throw new Error('не удалось расслышать слова — попробуйте «сначала отделить вокал»');
+  return { words, duration: null };
+}
+
 async function align(opts) {
   const { en, off, dur, lp, T, V, fs_, tk, B, c2i, sep, P } = await acoustic(opts);
   let greedy = '', pv = -1;
@@ -192,4 +211,4 @@ async function align(opts) {
   return { words, lines, transcript: greedy, median, duration: null };
 }
 
-module.exports = { align, transcribe, decodeWords, acoustic, fbank, viterbi, parseLyrics, spoken, spokenEn, readTokens, logprobs, logprobsRaw, load16k, MODEL_URL };
+module.exports = { align, transcribe, transcribeV3, decodeWords, acoustic, fbank, viterbi, parseLyrics, spoken, spokenEn, readTokens, logprobs, logprobsRaw, load16k, MODEL_URL };

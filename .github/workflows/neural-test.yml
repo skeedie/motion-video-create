@@ -1,0 +1,24 @@
+name: Проверка нейросетей
+on:
+  push:
+    branches: [main]
+    paths: ['neural.js', 'align.js', 'separate.js', 'dev/neural_ci.js', '.github/workflows/neural-test.yml']
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Пакеты
+        run: npm i --no-save onnxruntime-node@1.20.1 ffmpeg-static@5.2.0
+      - name: Модели из служебного релиза
+        run: |
+          mkdir -p models && cd models
+          for f in beat_this_small.onnx v3_e2e_ctc.int8.onnx v3_e2e_ctc_vocab.txt htdemucs_ft_vocals_htdemucs_ft_vocals_fp16weights.onnx isnet-general-use.onnx; do
+            curl -sSfL --retry 4 -o $f https://github.com/${{ github.repository }}/releases/download/models-v2/$f
+          done
+          ls -la
+      - name: Запуск
+        run: node dev/neural_ci.js models

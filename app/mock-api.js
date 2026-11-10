@@ -18,6 +18,8 @@ if (!window.api) {
       const r = await fetch('/__align', { method: 'POST', body: JSON.stringify(args) }); if (!r.ok) throw new Error(await r.text()); return await r.json();
     },
     async transcribe(args, onProgress) { window.__trArgs = args; onProgress && onProgress('Распознаю слова…'); if (!window.__fakeTranscribe) throw new Error('нет распознавания в dev-режиме'); return { words: JSON.parse(JSON.stringify(window.__fakeTranscribe)) }; },
+    async netBeats(a) { if (window.__fakeNet) return window.__fakeNet; throw new Error('нет нейросети в dev-режиме'); },
+    async removeBg(a, onProgress) { onProgress && onProgress('Нейросеть ищет, где фон…'); window.__bgArg = a; return { dataUrl: a.dataUrl, model: 'isnet' }; },
     async saveProject(json, name, existing) { ls('ls-project', json); return existing || name; },
     async openProject() { const j = ls('ls-project'); return j ? { json: j, path: 'local.lsp' } : null; },
     async recent() { return []; },

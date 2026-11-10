@@ -829,6 +829,39 @@ GitHub ответил {} ⇒ GitHub replied {}
 готовый файл не читается: {} ⇒ the finished file cannot be read: {}
 браузер (dev) ⇒ browser (dev)
 English interface ⇒ English interface
+нейросеть… ⇒ neural net…
+нейросеть ⇒ neural net
+Темп и сильные доли определила нейросеть Beat This! ⇒ Tempo and downbeats were found by the Beat This! neural net
+Нейросеть уточняет биты… ⇒ The neural net is refining the beats…
+быстро ⇒ fast
+качественно ⇒ best quality
+Быстро — модель MDX. Качественно — HT-Demucs: чище на громком бите, но в 2–4 раза дольше и нужно около 1 ГБ памяти ⇒ Fast — the MDX model. Best quality — HT-Demucs: cleaner on a loud beat, but 2–4× slower and needs about 1 GB of memory
+✂ без фона ⇒ ✂ remove background
+Нейросеть уберёт фон и оставит человека или предмет ⇒ The neural net removes the background and keeps the person or object
+Фон убран ⇒ Background removed
+Не удалось убрать фон: ⇒ Could not remove the background:
+Нейросеть ищет, где фон… ⇒ The neural net is finding the background…
+не удалось открыть картинку ⇒ could not open the image
+Лицензии компонентов ⇒ Third-party licenses
+Отделяю вокал от бита (качественно): {}% ⇒ Separating vocals from the beat (best quality): {}%
+Отделяю вокал от бита (качественно): {}% · осталось ~{} ⇒ Separating vocals from the beat (best quality): {}% · ~{} left
+Распознаю слова (нейросеть)… ⇒ Recognising words (neural net)…
+модель битов (≈10 МБ, один раз) ⇒ the beat model (≈10 MB, once)
+модель распознавания текста (≈225 МБ, один раз) ⇒ the lyrics recognition model (≈225 MB, once)
+модель качественного отделения вокала (≈166 МБ, один раз) ⇒ the best-quality vocal separation model (≈166 MB, once)
+модель вырезания фона (≈225 МБ, один раз) ⇒ the background removal model (≈225 MB, once)
+модель вырезания фона (≈180 МБ, один раз) ⇒ the background removal model (≈180 MB, once)
+Распознавание текста (GigaAM v3) ⇒ Lyrics recognition (GigaAM v3)
+скачается при первом распознавании (≈225 МБ) ⇒ downloads on first recognition (≈225 MB)
+Качественное отделение вокала (HT-Demucs) ⇒ Best-quality vocal separation (HT-Demucs)
+скачается при первом использовании (≈166 МБ) ⇒ downloads on first use (≈166 MB)
+Биты (Beat This!) ⇒ Beats (Beat This!)
+скачается при первой загрузке трека (≈10 МБ) ⇒ downloads when you first load a track (≈10 MB)
+Картинки ⇒ Images
+Вырезание фона ⇒ Background removal
+IS-Net — для BiRefNet нужно от 16 ГБ памяти ⇒ IS-Net — BiRefNet needs 16 GB of memory or more
+{}, скачана ⇒ {}, downloaded
+{}, скачается при первом использовании (≈{} МБ) ⇒ {}, downloads on first use (≈{} MB)
 Темп ⇒ Tempo
 Темп трека в ударах в минуту. Определяется сам; если ошибся — впишите свой или простучите ⇒ Track tempo in beats per minute. Detected automatically; if it's wrong, type your own or tap it
 вручную ⇒ manual

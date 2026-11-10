@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('api', {
   readFile: p => inv('readFile', p),
   align: withProgress('progress:align', a => inv('align', a)),
   transcribe: withProgress('progress:align', a => inv('transcribe', a)),
+  netBeats: a => inv('netBeats', a),
+  removeBg: withProgress('progress:bg', a => inv('removeBg', a)),
   saveProject: (json, name, existing) => inv('saveProject', json, name, existing),
   openProject: p => inv('openProject', p),
   recent: () => inv('recent'),

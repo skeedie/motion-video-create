@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, shell, clipboard, nativeImage } = require('electron');
 const path = require('path'), fs = require('fs'), os = require('os'), cp = require('child_process'), { pathToFileURL } = require('url');
 // все запущенные ffmpeg запоминаются и завершаются при выходе: в Windows дочерние процессы сами не закрываются и держат файлы программы
 const CHILDREN = new Set(), _spawn = cp.spawn;
@@ -280,12 +280,35 @@ async function ensureModel(progress) {
   return dir;
 }
 const SESS = {};
-async function getSession(file) {
+// opts — настройки onnxruntime: тяжёлым моделям (Demucs, вырезание фона) отключаем оптимизацию графа и пул памяти,
+// иначе они просят в разы больше оперативной памяти
+async function getSession(file, opts = {}) {
   if (SESS[file]) return SESS[file];
   const ort = require('onnxruntime-node');
-  SESS[file] = { ort, s: await ort.InferenceSession.create(file, { executionProviders: ['cpu'] }) };
+  SESS[file] = { ort, s: await ort.InferenceSession.create(file, Object.assign({ executionProviders: ['cpu'] }, opts)) };
   return SESS[file];
 }
+async function dropSession(file) { const x = SESS[file]; delete SESS[file]; if (x) try { await x.s.release(); } catch (e) {} }
+
+// ---------- модели v2: биты, распознавание v3, Demucs, вырезание фона ----------
+const N = require('./neural');
+const M2_BASE = `https://github.com/${REPO}/releases/download/models-v2/`;
+const M2 = {
+  beat: { files: ['beat_this_small.onnx'], label: 'модель битов (≈10 МБ, один раз)' },
+  ru3: { files: ['v3_e2e_ctc_vocab.txt', 'v3_e2e_ctc.int8.onnx'], label: 'модель распознавания текста (≈225 МБ, один раз)' },
+  demucs: { files: ['htdemucs_ft_vocals_htdemucs_ft_vocals_fp16weights.onnx'], label: 'модель качественного отделения вокала (≈166 МБ, один раз)' },
+  birefnet: { files: ['birefnet_lite.onnx'], label: 'модель вырезания фона (≈225 МБ, один раз)' },
+  isnet: { files: ['isnet-general-use.onnx'], label: 'модель вырезания фона (≈180 МБ, один раз)' }
+};
+const M2_DIR = () => UD('models2');
+const hasM2 = key => M2[key].files.every(f => fs.existsSync(path.join(M2_DIR(), f)));
+async function ensureM2(key, progress) {
+  const dir = M2_DIR(); fs.mkdirSync(dir, { recursive: true });
+  for (const f of M2[key].files) { const p = path.join(dir, f); if (!fs.existsSync(p)) await download(M2_BASE + f, p, f.endsWith('.txt') ? 'словарь модели' : M2[key].label, progress || (() => {})); }
+  return M2[key].files.map(f => path.join(dir, f));
+}
+// вырезание фона: BiRefNet точнее, но на картинке 1024×1024 занимает ~6 ГБ памяти — берём его только на компьютерах с 16 ГБ и больше
+const bgKind = () => os.totalmem() >= 15.5 * 2 ** 30 ? 'birefnet' : 'isnet';
 const EN_BASE = `https://github.com/${REPO}/releases/download/model-en-v1/`;
 async function ensureEn(progress) {
   const dir = UD('w2v-en'), onnx = path.join(dir, 'model.int8.onnx'), voc = path.join(dir, 'vocab.json');
@@ -302,13 +325,20 @@ async function ensureMdx(progress) {
   await download(SEP.MDX.url, f, 'модель отделения вокала (≈65 МБ, один раз)', progress); return f;
 }
 // вырезать вокал из отрезка трека и сохранить во временный wav
-async function vocalsFile(audioPath, from, to, progress) {
-  const f = await ensureMdx(progress), { ort, s } = await getSession(f);
+async function vocalsFile(audioPath, from, to, progress, quality) {
+  const best = quality === 'best';
+  const f = best ? (await ensureM2('demucs', progress))[0] : await ensureMdx(progress);
+  // Demucs с оптимизацией графа просит больше 7 ГБ памяти, без неё — около 1 ГБ
+  const { ort, s } = await getSession(f, best ? { graphOptimizationLevel: 'disabled', enableCpuMemArena: false } : {});
   progress('Читаю трек для отделения вокала…');
   const a = from != null ? Math.max(0, +from) : null, st = await SEP.loadStereo44(FFMPEG, audioPath, a, to != null ? +to : null);
   const t0 = Date.now();
-  const v = await SEP.separate(st, async (arr, dims) => { const out = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', arr, dims) }); return out[s.outputNames[0]].data; },
-    q => { const el = (Date.now() - t0) / 1000, left = q > 0.02 ? el / q * (1 - q) : 0; progress(`Отделяю вокал от бита: ${Math.round(q * 100)}%${left ? ' · осталось ~' + (left > 90 ? Math.ceil(left / 60) + ' мин' : Math.ceil(left) + ' с') : ''}`); });
+  const tick = q => { const el = (Date.now() - t0) / 1000, left = q > 0.02 ? el / q * (1 - q) : 0; progress(`Отделяю вокал от бита${best ? ' (качественно)' : ''}: ${Math.round(q * 100)}%${left ? ' · осталось ~' + (left > 90 ? Math.ceil(left / 60) + ' мин' : Math.ceil(left) + ' с') : ''}`); };
+  let v;
+  try {
+    v = best ? await N.demucsVocals(st, async buf => (await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', buf, [1, 2, N.DM.N]) }))[s.outputNames[0]].data, tick)
+      : await SEP.separate(st, async (arr, dims) => { const out = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', arr, dims) }); return out[s.outputNames[0]].data; }, tick);
+  } finally { if (best) await dropSession(f); }
   const out = path.join(os.tmpdir(), `lyric-vocals-${Date.now()}.wav`); SEP.writeWav(out, v, 44100);
   log(`вокал отделён за ${((Date.now() - t0) / 1000).toFixed(1)} с`); return { file: out, offset: a || 0 };
 }
@@ -316,13 +346,19 @@ async function vocalsFile(audioPath, from, to, progress) {
 async function runModel(ev, args, what) {
   const progress = t => send(ev, 'progress:align', t), en = args.lang === 'en';
   let audioPath = args.audioPath, from = args.from, to = args.to, offset = null, tmp = null;
-  if (args.vocals) { const r = await vocalsFile(args.audioPath, args.from, args.to, progress); tmp = audioPath = r.file; offset = r.offset; from = null; to = null; }
+  if (args.vocals) { const r = await vocalsFile(args.audioPath, args.from, args.to, progress, args.vocalsQ); tmp = audioPath = r.file; offset = r.offset; from = null; to = null; }
   const fn = what === 'transcribe' ? A.transcribe : A.align;
   try {
     if (en) {
       const dir = await ensureEn(progress), { ort, s } = await getSession(path.join(dir, 'model.int8.onnx'));
       const runRaw = async x => { const out = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', x, [1, x.length]) }); const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] }; };
       return await fn({ ffmpeg: FFMPEG, modelDir: dir, audioPath, lyrics: args.lyrics, from, to, offset, lang: 'en', runRaw, progress });
+    }
+    if (what === 'transcribe') {
+      // распознавание русского — GigaAM v3: текст сразу с пунктуацией и заглавными
+      const [voc, onnx] = await ensureM2('ru3', progress), { ort, s } = await getSession(onnx);
+      const run3 = async (feats, T) => { const out = await s.run({ features: new ort.Tensor('float32', feats, [1, 64, T]), feature_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(T)]), [1]) }); const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] }; };
+      return await A.transcribeV3({ ffmpeg: FFMPEG, vocab: fs.readFileSync(voc, 'utf8'), audioPath, from, to, offset, runChunk: run3, progress });
     }
     const dir = await ensureModel(progress), { ort, s } = await getSession(path.join(dir, 'model.int8.onnx'));
     const runChunk = async (feats, T) => {
@@ -420,6 +456,44 @@ async function renderSegment(job, k0, k1, file, dims, onFrame) {
 }
 handle('cancelExport', () => { cancelFlag = true; });
 
+// ---------- биты нейросетью (Beat This!) ----------
+function decodeMean22k(file) {
+  return new Promise((res, rej) => {
+    const p = spawn(FFMPEG, ['-v', 'error', '-i', file, '-ac', '2', '-ar', '22050', '-f', 'f32le', '-'], { windowsHide: true }), ch = []; let err = '';
+    p.stdout.on('data', d => ch.push(d)); p.stderr.on('data', d => err += d); p.on('error', rej);
+    p.on('close', c => { if (c !== 0) return rej(new Error('ffmpeg: ' + err.slice(0, 200))); const b = Buffer.concat(ch), n = b.length >> 3, x = new Float32Array(n);
+      for (let i = 0; i < n; i++) x[i] = (b.readFloatLE(i * 8) + b.readFloatLE(i * 8 + 4)) / 2; res(x); });
+  });
+}
+const BEAT_CACHE = () => UD('beatcache');
+handle('netBeats', async (ev, a) => {
+  const st = fs.statSync(a.audioPath), key = require('crypto').createHash('md5').update(a.audioPath + '|' + st.size + '|' + st.mtimeMs).digest('hex'), cf = path.join(BEAT_CACHE(), key + '.json');
+  try { const c = JSON.parse(fs.readFileSync(cf, 'utf8')); return { beat: Float32Array.from(c.beat), down: Float32Array.from(c.down), fps: c.fps }; } catch (e) {}
+  const [file] = await ensureM2('beat'), { ort, s } = await getSession(file);
+  const t0 = Date.now(), x = await decodeMean22k(a.audioPath), F = await N.beatFeaturesAsync(x);
+  const r = await N.beatActivations(F, async (buf, n) => { const o = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', buf, [1, n, 128]) }); return { beat: o.beat.data, downbeat: o.downbeat.data }; });
+  log(`биты нейросетью: ${(x.length / 22050).toFixed(0)} с трека за ${((Date.now() - t0) / 1000).toFixed(1)} с`);
+  try { fs.mkdirSync(BEAT_CACHE(), { recursive: true }); fs.writeFileSync(cf, JSON.stringify({ beat: Array.from(r.beat, v => +v.toFixed(3)), down: Array.from(r.down, v => +v.toFixed(3)), fps: r.fps })); } catch (e) {}
+  return r;
+});
+
+// ---------- вырезать фон с картинки ----------
+handle('removeBg', async (ev, a) => {
+  const progress = t => send(ev, 'progress:bg', t);
+  let img = nativeImage.createFromDataURL(a.dataUrl); if (img.isEmpty()) throw new Error('не удалось открыть картинку');
+  let { width: w, height: h } = img.getSize(); const k = Math.min(1, 1600 / Math.max(w, h));
+  if (k < 1) { img = img.resize({ width: Math.round(w * k), height: Math.round(h * k), quality: 'best' }); ({ width: w, height: h } = img.getSize()); }
+  const kind = bgKind(), [file] = await ensureM2(kind, progress); progress('Нейросеть ищет, где фон…');
+  const { ort, s } = await getSession(file, { enableCpuMemArena: false, enableMemPattern: false });
+  try {
+    const px = img.toBitmap(), inp = N.bgInput(px, w, h, 'bgra', kind);
+    const o = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', inp, [1, 3, N.BG.size, N.BG.size]) });
+    const al = N.bgAlpha(o[s.outputNames[0]].data, w, h, kind), out = Buffer.from(px);
+    for (let i = 0; i < w * h; i++) { const q = al[i]; out[i * 4] = out[i * 4] * q / 255; out[i * 4 + 1] = out[i * 4 + 1] * q / 255; out[i * 4 + 2] = out[i * 4 + 2] * q / 255; out[i * 4 + 3] = q; }
+    return { dataUrl: nativeImage.createFromBitmap(out, { width: w, height: h }).toDataURL(), model: kind };
+  } finally { await dropSession(file); }
+});
+
 // ---------- проверка системы ----------
 const runFFOut = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let o = '', e = ''; p.stdout.on('data', d => o += d); p.stderr.on('data', d => e += d); p.on('error', rej); p.on('close', c => c === 0 ? res(o + e) : rej(new Error(e.slice(0, 300)))); });
 handle('selfTest', async () => {
@@ -440,6 +514,10 @@ handle('selfTest', async () => {
   add('Синхронизация', 'Модель для русского', has('giga-ctc', 'model.int8.onnx') ? 'ok' : 'info', has('giga-ctc', 'model.int8.onnx') ? 'скачана' : 'скачается при первой синхронизации (≈230 МБ)');
   add('Синхронизация', 'Модель для английского', has('w2v-en', 'model.int8.onnx') ? 'ok' : 'info', has('w2v-en', 'model.int8.onnx') ? 'скачана' : 'скачается при первой синхронизации на английском (≈120 МБ)');
   add('Синхронизация', 'Отделение вокала', has('uvr', SEP.MDX.file) ? 'ok' : 'info', has('uvr', SEP.MDX.file) ? 'модель скачана' : 'модель скачается при первом использовании (≈65 МБ)');
+  add('Синхронизация', 'Распознавание текста (GigaAM v3)', hasM2('ru3') ? 'ok' : 'info', hasM2('ru3') ? 'скачана' : 'скачается при первом распознавании (≈225 МБ)');
+  add('Синхронизация', 'Качественное отделение вокала (HT-Demucs)', hasM2('demucs') ? 'ok' : 'info', hasM2('demucs') ? 'скачана' : 'скачается при первом использовании (≈166 МБ)');
+  add('Синхронизация', 'Биты (Beat This!)', hasM2('beat') ? 'ok' : 'info', hasM2('beat') ? 'скачана' : 'скачается при первой загрузке трека (≈10 МБ)');
+  { const k = bgKind(); add('Картинки', 'Вырезание фона', hasM2(k) ? 'ok' : 'info', (k === 'birefnet' ? 'BiRefNet' : 'IS-Net — для BiRefNet нужно от 16 ГБ памяти') + (hasM2(k) ? ', скачана' : `, скачается при первом использовании (≈${k === 'birefnet' ? 225 : 180} МБ)`)); }
   try { const res = await Promise.race([net.fetch(`https://api.github.com/repos/${REPO}`, { method: 'HEAD', headers: { 'User-Agent': 'LyricStudio' } }), new Promise((_, j) => setTimeout(() => j(new Error('нет ответа за 6 с')), 6000))]); add('Сеть', 'Доступ к GitHub', res.ok ? 'ok' : 'warn', res.ok ? 'обновления и модели скачиваются' : 'GitHub ответил ' + res.status); }
   catch (e) { add('Сеть', 'Доступ к GitHub', 'warn', 'нет связи (' + e.message + ') — обновления и модели не скачаются'); }
   return r;

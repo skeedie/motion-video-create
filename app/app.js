@@ -201,14 +201,27 @@ async function ensureSpectrum() {
   for (const [a, b] of parts) { const seg = audioData.mono.subarray(Math.floor(a * sr), Math.floor(b * sr)); cat.set(seg, o); o += seg.length; }
   const d = Spectrum.spectrum(cat, sr, 0, len / sr, 30); d.t0 = t0; specCache = { key, data: d };
 }
+// биты: сразу — быстрым алгоритмом, затем точнее — нейросетью Beat This! (ответ сети запоминается для этого трека)
+let netAct = null, netActPath = '', netBusy = false;
 function analyzeBeats() {
-  if (!audioData) { showBpm(); return; } try { beatInfo = Beats.detect(audioData.mono, audioData.sr, { bpm: proj.bpm || undefined }); } catch (e) { beatInfo = null; api.log('warn', 'биты: ' + e.message); }
+  if (!audioData) { showBpm(); return; }
+  let dsp = null; try { dsp = Beats.detect(audioData.mono, audioData.sr, { bpm: proj.bpm || undefined }); } catch (e) { api.log('warn', 'биты: ' + e.message); }
+  beatInfo = dsp;
+  if (netAct && netActPath === proj.audioPath) { try { const nb = Beats.fromNet(netAct.beat, netAct.down, netAct.fps, { bpm: proj.bpm || undefined }, dsp || {}); if (nb) beatInfo = nb; } catch (e) { api.log('warn', 'биты нейросети: ' + e.message); } }
   showBpm(); Timeline.invalidate();
+}
+async function loadNetBeats() {
+  const p = proj.audioPath; if (!p || !api.netBeats || netActPath === p || netBusy) return;
+  netBusy = true; showBpm();
+  try { const r = await api.netBeats({ audioPath: p }); if (proj.audioPath === p && r) { netAct = r; netActPath = p; specCache = null; analyzeBeats(); scheduleRebuild(50); } }
+  catch (e) { api.log('warn', 'биты нейросетью: ' + (e.message || e)); }
+  netBusy = false; showBpm();
 }
 function showBpm() {
   $('#bpmLabel').textContent = beatInfo ? `${beatInfo.bpm} BPM · ${beatInfo.beats.length} битов` : '';
   if (document.activeElement !== $('#bpmIn')) $('#bpmIn').value = beatInfo ? beatInfo.bpm : (proj.bpm || '');
-  $('#bpmMode').textContent = proj.bpm ? 'вручную' : beatInfo ? 'авто' : '';
+  $('#bpmMode').textContent = proj.bpm ? 'вручную' : netBusy ? 'нейросеть…' : beatInfo && beatInfo.neural ? 'нейросеть' : beatInfo ? 'авто' : '';
+  $('#bpmMode').title = beatInfo && beatInfo.neural ? 'Темп и сильные доли определила нейросеть Beat This!' : netBusy ? 'Нейросеть уточняет биты…' : '';
 }
 // поменять темп: сетка битов пересчитывается под заданный темп, от неё зависят обрезка, смена сцен и «подтягивание» слов
 function setBpm(v) {
@@ -389,7 +402,7 @@ async function loadAudio(info) {
   audioUrl = URL.createObjectURL(new Blob([buf])); audio.src = audioUrl;
   audioData = await Spectrum.decodeMono(buf); proj.duration = proj.duration || audioData.duration; specCache = null;
   if (!proj.style.end) proj.style.end = +audioData.duration.toFixed(2);
-  setTimeout(analyzeBeats, 30);
+  setTimeout(() => { analyzeBeats(); loadNetBeats(); }, 30);
 }
 $('#bAudio').onclick = async () => { const info = await api.pickAudio(); if (!info) return; try { await loadAudio(info); proj.duration = audioData.duration; fillStyle(); Timeline.fit(); touch(); toast('Трек загружен'); } catch (e) { toastErr('Не удалось прочитать файл: ' + e.message); } };
 
@@ -401,8 +414,8 @@ $('#bAlign').onclick = async () => {
   const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; $('#bAlign').disabled = true;
   try {
     const g = guessLang(proj.lyrics); if (g && g !== $('#alLang').value) { $('#alLang').value = g; toast(g === 'en' ? 'Текст на английском — включил английскую модель' : 'Текст на русском — включил русскую модель', 3000); }
-    proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked;
-    const r = await api.align({ audioPath: proj.audioPath, lyrics: proj.lyrics, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals },
+    proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked; proj.vocalsQ = $('#alVocalsQ').value;
+    const r = await api.align({ audioPath: proj.audioPath, lyrics: proj.lyrics, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals, vocalsQ: proj.vocalsQ },
       p => { st.textContent = p; });
     proj.words = r.words; markAdlibs(proj.words); proj.duration = r.duration || proj.duration;
     if (!beatInfo) analyzeBeats(); if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
@@ -427,7 +440,9 @@ function wordsToLines(words) {
   const cost = (i, j) => { // слова i..j-1
     const end = w => w.e0 ?? w.e, d = end(words[j - 1]) - words[i].t, k = j - i, g = j < n ? words[j].t - end(words[j - 1]) : 1;
     let c = 2 * ((d - target) / target) ** 2 - 4 * Math.min(g, .6) + (k === 1 ? 1.5 : 0) + (k > 12 ? 4 : 0) + .6 * nearBar(words[i].t);
-    for (let q = i + 1; q < j; q++) if (words[q].t - end(words[q - 1]) > 1.2) c += 6; // длинная пауза внутри строки — плохо
+    // знаки препинания от нейросети подсказывают, где кончается фраза
+    const pe = words[j - 1].w; if (j < n) c -= /[.!?…]$/.test(pe) ? 1.6 : /[,;:]$/.test(pe) ? .6 : 0;
+    for (let q = i + 1; q < j; q++) { if (words[q].t - end(words[q - 1]) > 1.2) c += 6; if (/[.!?…]$/.test(words[q - 1].w)) c += .8; } // пауза или конец фразы внутри строки — плохо
     return c;
   };
   const best = new Float64Array(n + 1).fill(Infinity), from = new Int32Array(n + 1); best[0] = 0;
@@ -439,11 +454,11 @@ function wordsToLines(words) {
 $('#bRecog').onclick = async () => {
   if (!proj.audioPath) return toast('Сначала выберите трек');
   if ($('#lyrics').value.trim() && !confirm('Заменить текст в поле распознанным с трека?')) return;
-  proj.alFrom = $('#alFrom').value; proj.alTo = $('#alTo').value; proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked;
+  proj.alFrom = $('#alFrom').value; proj.alTo = $('#alTo').value; proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked; proj.vocalsQ = $('#alVocalsQ').value;
   const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; $('#bRecog').disabled = $('#bAlign').disabled = true;
   try {
     if (!beatInfo) analyzeBeats();
-    const r = await api.transcribe({ audioPath: proj.audioPath, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals }, p => { st.textContent = p; });
+    const r = await api.transcribe({ audioPath: proj.audioPath, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals, vocalsQ: proj.vocalsQ }, p => { st.textContent = p; });
     const words = r.words.map(w => ({ w: w.w, t: w.t, e: w.e, e0: w.e0, conf: w.conf }));
     proj.lyrics = wordsToLines(words); $('#lyrics').value = proj.lyrics;
     proj.words = words.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })); markAdlibs(proj.words);
@@ -456,6 +471,7 @@ $('#bRecog').onclick = async () => {
 };
 // сильные доли (начала тактов): из каждых 4 битов берётся тот, где удар в низах сильнее
 function downbeats() {
+  if (beatInfo && beatInfo.downbeats && beatInfo.downbeats.length > 1) return beatInfo.downbeats;
   if (!beatInfo || beatInfo.beats.length < 8) return []; const B = beatInfo.beats; let best = -1, bp = 0;
   for (let p = 0; p < 4; p++) { let s = 0; for (let i = p; i < B.length; i += 4) s += onsetAt(B[i]); if (s > best) { best = s; bp = p; } }
   return B.filter((b, i) => i % 4 === bp);
@@ -588,10 +604,23 @@ function wordOptions(sc, val, none = 'нет') {
   return `<option value="">${none}</option>` + proj.words.slice(sc.a, sc.b).map((w, i) => `<option data-notr value="${sc.a + i}" ${String(val) === String(sc.a + i) ? 'selected' : ''}>${esc(w.w)}</option>`).join('');
 }
 const SEL_LABEL = { circle: 'круг вокруг обложки', bars: 'полосы', wave: 'волна', auto: 'как в шаблоне', none: 'не показывать', note: 'заметка', ticker: 'фиолетовая лента', transcript: 'расшифровка (тёмная)', status: 'статус (зелёный)', warn: 'предупреждение', search: 'поиск сверху', data: 'данные', decline: 'отклонить', approve: 'одобрить' };
-function imgPicker(box, val, onPick, onClear, label = 'Выбрать картинку…') {
+// onCut(новое значение) — если передан, рядом с картинкой появляется кнопка «вырезать фон»
+function imgPicker(box, val, onPick, onClear, label = 'Выбрать картинку…', onCut) {
   const src = asset(val); box.className = 'imgPick';
-  box.innerHTML = src ? `<img src="${src}"><button class="small">заменить</button><button class="small ghost">✕</button>` : `<button class="small">${label}</button>`;
-  const bs = box.querySelectorAll('button'); bs[0].onclick = onPick; if (bs[1]) bs[1].onclick = onClear;
+  box.innerHTML = src ? `<img src="${src}"><button class="small">заменить</button>${onCut ? '<button class="small" data-cut title="Нейросеть уберёт фон и оставит человека или предмет">✂ без фона</button>' : ''}<button class="small ghost">✕</button>` : `<button class="small">${label}</button>`;
+  const bs = [...box.querySelectorAll('button:not([data-cut])')]; bs[0].onclick = onPick; if (bs[1]) bs[1].onclick = onClear;
+  const cb = box.querySelector('[data-cut]'); if (cb) cb.onclick = async () => { const v = await cutBackground(val, cb); if (v) onCut(v); };
+}
+// вырезать фон нейросетью: картинка → PNG с прозрачностью (новый ресурс проекта)
+async function cutBackground(val, btn) {
+  const src = asset(val); if (!src || !api.removeBg) return null;
+  let dataUrl = src; if (!/^data:/.test(src)) { const b = await (await fetch(src)).blob(); dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); }); }
+  const was = btn ? btn.textContent : ''; if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await api.removeBg({ dataUrl }, t => { if (btn) btn.textContent = t.length > 26 ? '…' : t; toast(t, 2500); });
+    const id = uid(); proj.assets[id] = r.dataUrl; toast('Фон убран', 1800); touch(); return 'asset:' + id;
+  } catch (e) { toastErr('Не удалось убрать фон: ' + (e.message || e)); return null; }
+  finally { if (btn) { btn.disabled = false; btn.textContent = was; } }
 }
 function renderScene() {
   const sc = proj.scenes[sel]; $('#sceneEmpty').hidden = !!sc; $('#sceneEditor').hidden = !sc; if (!sc) return;
@@ -660,7 +689,7 @@ function renderFields(box, t, store) {
     else if (fd.type === 'bool') { d.innerHTML = `<label class="chk"><input type="checkbox" ${v ? 'checked' : ''}> ${esc(fd.label)}</label>`; inp = d.querySelector('input'); inp.onchange = () => { store[fd.k] = inp.checked; scheduleRebuild(); }; }
     else if (fd.type === 'image') {
       d.innerHTML = `<label class="lbl">${esc(fd.label)}</label><div></div>`;
-      const pb = d.lastChild, redraw = () => imgPicker(pb, store[fd.k] ?? defaultOf(t, fd), async () => { const a = await loadImage(false); if (a) { store[fd.k] = a; redraw(); scheduleRebuild(50); } }, () => { store[fd.k] = ''; redraw(); scheduleRebuild(50); });
+      const pb = d.lastChild, redraw = () => imgPicker(pb, store[fd.k] ?? defaultOf(t, fd), async () => { const a = await loadImage(false); if (a) { store[fd.k] = a; redraw(); scheduleRebuild(50); } }, () => { store[fd.k] = ''; redraw(); scheduleRebuild(50); }, undefined, v => { store[fd.k] = v; redraw(); scheduleRebuild(50); });
       redraw();
     }
     else {
@@ -775,7 +804,7 @@ function fillStyle() {
   const st = proj.style, c = st.custom, fx = st.fx;
   $$('#fmt button').forEach(b => b.classList.toggle('on', b.dataset.v === st.format));
   $('#vStart').value = st.start; $('#vEnd').value = st.end; $('#artist').value = st.artist; $('#songTitle').value = st.title; $('#wm').value = st.wm; $('#wmOp').value = st.wmOp;
-  imgPicker($('#wmLogo'), st.wmImg, async () => { const a = await loadImage(true, 400); if (a) { st.wmImg = a; fillStyle(); scheduleRebuild(50); } }, () => { st.wmImg = ''; fillStyle(); scheduleRebuild(50); }, 'Логотип-картинка…');
+  imgPicker($('#wmLogo'), st.wmImg, async () => { const a = await loadImage(true, 400); if (a) { st.wmImg = a; fillStyle(); scheduleRebuild(50); } }, () => { st.wmImg = ''; fillStyle(); scheduleRebuild(50); }, 'Логотип-картинка…', v => { st.wmImg = v; fillStyle(); scheduleRebuild(50); });
   $('#partType').value = st.part || ''; $('#partColor').value = st.partColor; const p = PRESETS[st.preset] || USER_PRESETS[st.preset] || {};
   $('#beat').value = st.beat ?? (p.beat || 0); $('#beatV').textContent = (+$('#beat').value).toFixed(3);
   $('#smokeOn').checked = !!st.smokeOn; $('#smokeA').value = st.smokeA; $('#smokeB').value = st.smokeB; $('#lead').value = st.lead ?? (p.lead ?? 0.2);
@@ -928,7 +957,7 @@ function updTitle() { $('#projName').textContent = (projPath ? projPath.split(/[
 function renderAll() { renderStickers(); msel = new Set([...msel].filter(i => i < proj.scenes.length)); if (!msel.size || !msel.has(sel)) msel = new Set([sel]); renderStrip(); renderScene(); renderPresets(); fillStyle(); updTitle(); }
 function applyProject(p, path) {
   proj = merge(newProject(), p); proj.style = merge(newProject().style, p.style || {}); proj.assets = p.assets || {}; proj.fonts = p.fonts || [];
-  projPath = path || null; $('#alLang').value = proj.lang || 'ru'; $('#alVocals').checked = !!proj.vocals; $('#alVocHint').hidden = !proj.vocals; $('#lyrics').value = proj.lyrics; $('#alFrom').value = proj.alFrom; $('#alTo').value = proj.alTo; $('#audioName').textContent = proj.audioName || 'не выбран';
+  projPath = path || null; $('#alLang').value = proj.lang || 'ru'; $('#alVocals').checked = !!proj.vocals; $('#alVocalsQ').value = proj.vocalsQ || 'fast'; $('#alVocalsQ').hidden = !proj.vocals; $('#alVocHint').hidden = !proj.vocals; $('#lyrics').value = proj.lyrics; $('#alFrom').value = proj.alFrom; $('#alTo').value = proj.alTo; $('#audioName').textContent = proj.audioName || 'не выбран';
   sel = 0; specCache = null; beatInfo = null; showBpm(); registerFonts();
 }
 async function afterLoad() {
@@ -976,7 +1005,7 @@ $('#bHelp').onclick = e => { e.stopPropagation(); const m = $('#helpMenu'); m.hi
 document.addEventListener('click', () => { ['#openMenu', '#helpMenu', '#newMenu', '#saveMenu'].forEach(m => $(m).hidden = true); });
 $$('#helpMenu button').forEach(b => b.onclick = () => {
   const a = b.dataset.act; $('#helpMenu').hidden = true;
-  if (a === 'keys') $('#keysModal').hidden = false; else if (a === 'report') copyReport(); else if (a === 'logs') api.openLogFolder(); else if (a === 'update') checkUpdate(true); else if (a === 'selftest') openSelfTest(); else if (a === 'lang') setLang(LANG === 'en' ? 'ru' : 'en');
+  if (a === 'keys') $('#keysModal').hidden = false; else if (a === 'report') copyReport(); else if (a === 'logs') api.openLogFolder(); else if (a === 'update') checkUpdate(true); else if (a === 'selftest') openSelfTest(); else if (a === 'licenses') openLicenses(); else if (a === 'lang') setLang(LANG === 'en' ? 'ru' : 'en');
 });
 setInterval(() => { if (dirty && (proj.words.length || proj.lyrics)) { proj.lyrics = $('#lyrics').value; api.autosave(JSON.stringify(proj)).catch(() => {}); } }, 15000);
 window.__beforeClose = async () => {
@@ -984,15 +1013,16 @@ window.__beforeClose = async () => {
   else { try { await api.clearAutosave(); } catch (e) {} }
   return true;
 };
-$('#alVocals').onchange = e => { $('#alVocHint').hidden = !e.target.checked; };
+$('#alVocals').onchange = e => { $('#alVocHint').hidden = !e.target.checked; $('#alVocalsQ').hidden = !e.target.checked; };
+$('#alVocalsQ').onchange = e => { proj.vocalsQ = e.target.value; touch(); };
 $('#lyrics').addEventListener('input', () => { proj.lyrics = $('#lyrics').value; touch(); });
 
 // ---------- профиль артиста ----------
 let pfDraft = {};
 function renderProfile() {
   $('#pfNick').value = pfDraft.nick || ''; $('#pfColor').value = pfDraft.color || '#9B6BFF';
-  imgPicker($('#pfAvatar'), pfDraft.avatar, async () => { const a = await loadImage(false, 400); if (a) { pfDraft.avatar = proj.assets[a.slice(6)]; renderProfile(); } }, () => { delete pfDraft.avatar; renderProfile(); }, 'Выбрать аватарку…');
-  imgPicker($('#pfLogo'), pfDraft.logo, async () => { const a = await loadImage(true, 400); if (a) { pfDraft.logo = proj.assets[a.slice(6)]; renderProfile(); } }, () => { delete pfDraft.logo; renderProfile(); }, 'Выбрать логотип…');
+  imgPicker($('#pfAvatar'), pfDraft.avatar, async () => { const a = await loadImage(false, 400); if (a) { pfDraft.avatar = proj.assets[a.slice(6)]; renderProfile(); } }, () => { delete pfDraft.avatar; renderProfile(); }, 'Выбрать аватарку…', v => { pfDraft.avatar = proj.assets[v.slice(6)]; renderProfile(); });
+  imgPicker($('#pfLogo'), pfDraft.logo, async () => { const a = await loadImage(true, 400); if (a) { pfDraft.logo = proj.assets[a.slice(6)]; renderProfile(); } }, () => { delete pfDraft.logo; renderProfile(); }, 'Выбрать логотип…', v => { pfDraft.logo = proj.assets[v.slice(6)]; renderProfile(); });
 }
 $('#bProfile').onclick = () => { pfDraft = Object.assign({}, PROFILE); renderProfile(); $('#profileModal').hidden = false; };
 $('#pfNick').oninput = e => pfDraft.nick = e.target.value.trim(); $('#pfColor').oninput = e => pfDraft.color = e.target.value;
@@ -1055,6 +1085,8 @@ function setLang(l) {
   try { sessionStorage.setItem('ls-reload', JSON.stringify({ proj, path: projPath, dirty })); } catch (e) {}
   api.setLang(l).catch(() => {}).finally(() => location.reload());
 }
+async function openLicenses() { $('#licModal').hidden = false; try { $('#licText').textContent = await (await fetch('licenses.txt')).text(); } catch (e) { $('#licText').textContent = String(e); } }
+$('#licClose').onclick = () => $('#licModal').hidden = true;
 function openSelfTest() { $('#stModal').hidden = false; runSelfTest(); }
 $('#stRun').onclick = runSelfTest;
 $('#stClose').onclick = () => { if (stBusy) api.cancelExport(); $('#stModal').hidden = true; };
@@ -1223,10 +1255,10 @@ $('#bmGo').onclick = async () => {
     try {
       const base = JSON.parse(saved), np = newProject(); np.style = JSON.parse(JSON.stringify(base.style)); Object.assign(np.style, { start: 0, end: 0, title: '', hook: '', cuts: [] }); np.style.intro.title = '';
       np.fonts = base.fonts; np.perScene = base.perScene; np.lang = base.lang; np.vocals = base.vocals; np.assets = {}; const used = JSON.stringify(np.style) + JSON.stringify(np.fonts); for (const id in base.assets) if (used.includes(id)) np.assets[id] = base.assets[id];
-      applyProject(np, null); await loadAudio({ path: b.path, name: b.name }); proj.duration = audioData.duration; analyzeBeats();
+      applyProject(np, null); await loadAudio({ path: b.path, name: b.name }); proj.duration = audioData.duration; analyzeBeats(); await loadNetBeats();
       // без текста — распознать с трека, с текстом — синхронизировать; язык — по тексту
-      if (b.lyrics && b.lyrics.trim()) { proj.lang = guessLang(b.lyrics) || proj.lang || 'ru'; proj.lyrics = b.lyrics; const r = await api.align({ audioPath: b.path, lyrics: b.lyrics, from: null, to: null, lang: proj.lang, vocals: !!proj.vocals }, t => { b.msg = t; renderBatch(); }); proj.words = r.words; }
-      else { const r = await api.transcribe({ audioPath: b.path, from: null, to: null, lang: proj.lang || 'ru', vocals: !!proj.vocals }, t => { b.msg = t; renderBatch(); }); const ws = r.words.map(w => ({ w: w.w, t: w.t, e: w.e, e0: w.e0 })); proj.lyrics = wordsToLines(ws); proj.words = ws.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })); b.lyrics = proj.lyrics; }
+      if (b.lyrics && b.lyrics.trim()) { proj.lang = guessLang(b.lyrics) || proj.lang || 'ru'; proj.lyrics = b.lyrics; const r = await api.align({ audioPath: b.path, lyrics: b.lyrics, from: null, to: null, lang: proj.lang, vocals: !!proj.vocals, vocalsQ: proj.vocalsQ }, t => { b.msg = t; renderBatch(); }); proj.words = r.words; }
+      else { const r = await api.transcribe({ audioPath: b.path, from: null, to: null, lang: proj.lang || 'ru', vocals: !!proj.vocals, vocalsQ: proj.vocalsQ }, t => { b.msg = t; renderBatch(); }); const ws = r.words.map(w => ({ w: w.w, t: w.t, e: w.e, e0: w.e0 })); proj.lyrics = wordsToLines(ws); proj.words = ws.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })); b.lyrics = proj.lyrics; }
       markAdlibs(proj.words); autoTrim(true); autoScenes(); if ($('#bmAcc').checked) autoAccents();
       const name = b.name.replace(/\.[^.]+$/, '');
       await api.saveProject(JSON.stringify(proj), name + '.lsp', dir + sep + name + '.lsp');
@@ -1288,13 +1320,14 @@ function renderStickers() {
     <button class="small ghost" data-del="${i}" title="Удалить">✕</button>
     <div class="opt"><select data-k="anim"><option value="pop">выпрыгивает</option><option value="fade">проявляется</option><option value="wiggle">качается</option><option value="none">без анимации</option></select>
     ${x.type === 'text' ? `<input data-k="color" type="color" value="${x.color || '#ffffff'}" title="цвет текста"><label class="chk small"><input data-k="bgOn" type="checkbox" ${x.bg ? 'checked' : ''}> плашка</label>` : ''}
-    <input data-k="rot" type="number" step="1" value="${x.rot || 0}" title="наклон, °" style="width:54px"><button class="small ghost" data-go="${i}" title="Перейти к стикеру">▶</button></div></div>`).join('');
+    <input data-k="rot" type="number" step="1" value="${x.rot || 0}" title="наклон, °" style="width:54px">${x.type === 'image' ? `<button class="small" data-cut title="Нейросеть уберёт фон и оставит человека или предмет">✂ без фона</button>` : ''}<button class="small ghost" data-go="${i}" title="Перейти к стикеру">▶</button></div></div>`).join('');
   box.querySelectorAll('.st').forEach(row => { const x = L[+row.dataset.i];
     row.querySelector('select').value = x.anim || 'pop';
     row.querySelectorAll('[data-k]').forEach(inp => inp.addEventListener(inp.type === 'checkbox' || inp.tagName === 'SELECT' ? 'change' : 'input', () => {
       const k = inp.dataset.k; if (k === 'bgOn') x.bg = inp.checked ? '#000000' : ''; else x[k] = inp.type === 'number' ? +inp.value : inp.value; scheduleRebuild(300); }));
     row.querySelector('[data-del]').onclick = () => { L.splice(+row.dataset.i, 1); renderStickers(); scheduleRebuild(50); };
-    row.querySelector('[data-go]').onclick = () => seekTo(x.t0 + .4); });
+    row.querySelector('[data-go]').onclick = () => seekTo(x.t0 + .4);
+    const cb = row.querySelector('[data-cut]'); if (cb) cb.onclick = async () => { const v = await cutBackground(x.value, cb); if (v) { x.value = v; renderStickers(); scheduleRebuild(50); } }; });
 }
 // ---------- перетаскивание в превью ----------
 function attachPreviewDrag() {

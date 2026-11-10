@@ -1,7 +1,7 @@
 {
   "name": "lyric-studio",
   "productName": "Lyric Studio",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Редактор lyric-роликов в стиле iOS-интерфейсов",
   "main": "main.js",
   "author": "melhor",
@@ -30,6 +30,7 @@
       "preload.js",
       "align.js",
       "separate.js",
+      "neural.js",
       "app/**/*"
     ],
     "asarUnpack": [
