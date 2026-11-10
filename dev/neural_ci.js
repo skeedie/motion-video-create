@@ -7,14 +7,16 @@ const ok = (c, m) => { if (!c) { console.error('ОШИБКА:', m); process.exit
 const mem = () => Math.round(process.memoryUsage().rss / 2 ** 20) + ' МБ';
 (async () => {
   // 1. биты: щелчки 120 BPM
-  cp.execFileSync(FF, ['-v', 'error', '-y', '-f', 'lavfi', '-i', "aevalsrc='if(lt(mod(t\\,0.5)\\,0.03)\\,sin(2*PI*80*t)*exp(-60*mod(t\\,0.5))\\,0)+0.3*if(lt(mod(t\\,0.25)\\,0.01)\\,random(0)-0.5\\,0)':s=44100:d=30", '-ac', '2', 'clicks.wav']);
+  cp.execFileSync(FF, ['-v', 'error', '-y', '-f', 'lavfi', '-i', "aevalsrc='sin(2*PI*60*t)*exp(-25*mod(t\\,0.5))+0.5*(random(0)-0.5)*exp(-40*mod(t+0.5\\,1))':s=44100:d=30", '-ac', '2', 'clicks.wav']);
   const raw = cp.execFileSync(FF, ['-v', 'error', '-i', 'clicks.wav', '-ac', '2', '-ar', '22050', '-f', 'f32le', '-'], { maxBuffer: 1 << 30 });
   const st = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4), x = new Float32Array(st.length / 2); for (let i = 0; i < x.length; i++) x[i] = (st[2 * i] + st[2 * i + 1]) / 2;
   let s = await ort.InferenceSession.create(path.join(M, 'beat_this_small.onnx'), { executionProviders: ['cpu'] });
   const F = await N.beatFeaturesAsync(x);
   const r = await N.beatActivations(F, async (buf, n) => { const o = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', buf, [1, n, 128]) }); return { beat: o.beat.data, downbeat: o.downbeat.data }; });
-  let pk = 0; for (let i = 1; i < r.beat.length - 1; i++) if (r.beat[i] > 0 && r.beat[i] >= r.beat[i - 1] && r.beat[i] >= r.beat[i + 1]) pk++;
-  ok(pk > 40 && pk < 75, `Beat This!: ${pk} пиков на 30 с щелчков 120 BPM (ожидалось ~60)`); await s.release();
+  // пики как в эталоне: максимум в окне ±3 кадра и логит > 0
+  const P = []; for (let i = 0; i < r.beat.length; i++) { if (r.beat[i] <= 0) continue; let m = true; for (let k = -3; k <= 3; k++) { const j = i + k; if (j >= 0 && j < r.beat.length && r.beat[j] > r.beat[i]) m = false; } if (m && (!P.length || i - P[P.length - 1] > 1)) P.push(i); }
+  const med = P.length > 1 ? (P[P.length - 1] - P[0]) / (P.length - 1) / 50 : 1;
+  ok(Math.abs(60 / med - 120) < 6 || Math.abs(60 / med - 240) < 12, `Beat This!: ${P.length} битов, средний интервал ${med.toFixed(3)} с → ${(60 / med).toFixed(1)} BPM (щелчки 120 BPM)`); await s.release();
   // 2. GigaAM v3: запуск на синтетическом звуке — проверяем вход/выход и int64
   const sp = path.join('clicks.wav'); s = await ort.InferenceSession.create(path.join(M, 'v3_e2e_ctc.int8.onnx'), { executionProviders: ['cpu'] });
   const res = await A.transcribeV3({ ffmpeg: FF, vocab: fs.readFileSync(path.join(M, 'v3_e2e_ctc_vocab.txt'), 'utf8'), audioPath: sp, from: 0, to: 10, progress: () => {},
