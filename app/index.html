@@ -26,11 +26,15 @@
     <button data-act="save">Сохранить <span class="muted small">Ctrl+S</span></button>
     <button data-act="as">Сохранить как… <span class="muted small">Ctrl+Shift+S</span></button>
     <button data-act="bundle">Сохранить вместе с треком (.lspz)…</button>
+    <div class="msep">Тайминги</div>
+    <button data-act="lrc" title="Текст с временем каждой строки — для плееров и других программ">Тайминги LRC…</button>
+    <button data-act="srt" title="Субтитры по времени готового ролика — для YouTube и монтажа">Субтитры SRT…</button>
   </div></div>
   <div class="dd"><button id="bHelp" class="ghost icon" title="Помощь">?</button><div id="helpMenu" class="menu right" hidden>
     <button data-act="keys">Горячие клавиши</button>
     <button data-act="update">Проверить обновления</button>
     <button data-act="selftest">Проверка системы…</button>
+    <button data-act="models">Модели нейросетей…</button>
     <button data-act="lang" id="langBtn">English interface</button>
     <button data-act="licenses">Лицензии компонентов</button>
     <button data-act="report">Скопировать отчёт об ошибке</button>
@@ -48,7 +52,7 @@
     <section data-pane="track">
       <label class="lbl">Трек</label>
       <div class="row"><button id="bAudio">Выбрать файл…</button><span id="audioName" class="muted ell">не выбран</span></div>
-      <div class="row tight" id="bpmRow" style="margin-top:6px"><span class="muted small">Темп</span><input id="bpmIn" type="number" step="0.1" min="40" max="240" style="width:74px" placeholder="—" title="Темп трека в ударах в минуту. Определяется сам; если ошибся — впишите свой или простучите"><span id="bpmMode" class="muted small">авто</span><div class="grow"></div><button class="small" id="bpmHalf" title="Вдвое медленнее">÷2</button><button class="small" id="bpmDbl" title="Вдвое быстрее">×2</button><button class="small" id="bpmTap" title="Нажимайте в такт музыке 4–8 раз">простучать</button><button class="small ghost" id="bpmAutoBtn" title="Определить темп заново">авто</button></div>
+      <div class="row tight" id="bpmRow" style="margin-top:6px"><span class="muted small">Темп</span><input id="bpmIn" type="number" step="0.1" min="40" max="240" style="width:74px" placeholder="—" title="Темп трека в ударах в минуту. Определяется сам; если ошибся — впишите свой или простучите"><span id="bpmMode" class="muted small">авто</span><div class="brk"></div><button class="small" id="bpmHalf" title="Вдвое медленнее">÷2</button><button class="small" id="bpmDbl" title="Вдвое быстрее">×2</button><button class="small" id="bpmTap" title="Нажимайте в такт музыке 4–8 раз">простучать</button><button class="small ghost" id="bpmAutoBtn" title="Определить темп заново">определить заново</button></div>
       <div class="row tight" style="margin-top:8px"><label class="lbl" style="flex:1;margin:0">Текст песни <span class="muted">— одна строка = одна строка на экране</span></label><button id="bRecog" class="small" title="Нейросеть сама расслышит слова, разобьёт их на строки по тактам и сразу расставит по времени">распознать с трека</button></div>
       <textarea id="lyrics" rows="12" placeholder="села батарейка&#10;нужен energizer{энерджайзер}, бро&#10;…"></textarea>
       <div class="hint">Подсказка: латиницу и цифры можно подсказать в фигурных скобках — <code>love{лав}</code>, <code>1:0{одинноль}</code>. Скобки на экран не попадут.</div>
@@ -58,6 +62,7 @@
       <div class="hint" id="alVocHint" hidden>Нейросеть уберёт бит перед синхронизацией — точнее на громком минусе, но дольше: примерно минута на минуту трека. Укажите отрезок выше, чтобы не обрабатывать весь трек.</div>
       <button id="bAlign" class="primary wide">Синхронизировать слова</button>
       <div id="alignStatus" class="status"></div>
+      <button id="alCancel" class="ghost small" hidden style="margin-top:6px" title="Остановить синхронизацию, распознавание, отделение вокала или загрузку модели">остановить</button>
       <label class="lbl">Появление слов</label>
       <select id="quant"><option value="0">точно как спето</option><option value="2">подтягивать к 1/8 бита</option><option value="4">подтягивать к 1/16 бита</option></select>
       <div class="hint">Слово, спетое чуть раньше или позже удара, появляется ровно в долю — текст «стучит» в такт. Сдвиг не больше 60 мс, тайминги в проекте не меняются.</div>
@@ -90,7 +95,7 @@
       <label class="chk small" title="Слова прилипают к битам при перетаскивании (Alt — временно выключить)"><input type="checkbox" id="snapBeats" checked> магнит к битам</label>
       <span id="bpmLabel" class="muted small" style="cursor:pointer" title="Изменить темп"></span>
       <div class="grow"></div>
-      <span class="muted small">Ctrl+колесо — масштаб · Shift+перетаскивание — сдвинуть строку</span>
+      <span class="muted small" id="tlHint">Ctrl+колесо — масштаб · Shift+перетаскивание — сдвинуть строку</span>
       <button id="tlFit" class="ghost small">весь ролик</button>
     </div>
     <div id="tlWrap"><canvas id="timeline"></canvas></div>
@@ -134,6 +139,8 @@
           <label class="lbl">Штамп (текст, пусто — без штампа)</label><div class="row"><input id="seStamp" placeholder="Понятно ✓"><select id="seStampAt"></select></div>
           </div>
           <label class="lbl">Частицы-эмодзи (пусто — без)</label><div class="row"><input id="seFx" placeholder="💨" class="emo"><select id="seFxAt"></select></div>
+          <div id="seAccList"></div>
+          <div class="row tight" style="margin-top:6px"><button id="seAccAdd" title="Сколько угодно акцентов в одной сцене: ещё одно подпрыгивание, штамп или эмодзи — каждый на своём слове. Новый акцент встаёт на слово под курсором">+ ещё акцент</button></div>
           <div class="row" style="margin-top:4px"><div style="flex:1"><label class="lbl">Переход сцены</label><select id="seTrans"><option value="">как в стиле</option><option value="fade">плавно</option><option value="surface">всплытие</option><option value="slide">слайд</option><option value="crisp">резкий</option><option value="zoom">зум</option><option value="whip">хлыст</option><option value="drop">падение</option></select></div>
           <div style="flex:1"><label class="lbl">Камера</label><select id="seCam"><option value="">нет</option><option value="in">наезд</option><option value="out">отъезд</option><option value="left">панорама ←</option><option value="right">панорама →</option><option value="sway">покачивание</option></select></div></div>
           <div id="seScaleBox"><label class="lbl">Размер карточки <span id="seScaleV" class="muted"></span></label><input id="seScale" type="range" min="0.6" max="1.7" step="0.01"></div>
@@ -264,13 +271,14 @@
     <label class="lbl">Куда</label>
     <div class="row seg wrap" id="xPlat"><button data-v="" class="on">Свой</button><button data-v="reels">Reels</button><button data-v="tiktok">TikTok</button><button data-v="shorts">Shorts</button></div>
     <label class="lbl">Файл</label>
-    <div class="row seg" id="xCont"><button data-v="mp4" class="on">MP4</button><button data-v="mov">MOV · прозрачный фон</button><button data-v="webm">WebM · прозрачный</button><button data-v="gif">GIF</button><button data-v="sticker" title="WebM 512 px, прозрачный, до 3 секунд от курсора">стикер TG</button></div>
+    <div class="row seg wrap" id="xCont"><button data-v="mp4" class="on">MP4</button><button data-v="mov">MOV · прозрачный фон</button><button data-v="webm">WebM · прозрачный</button><button data-v="gif">GIF</button><button data-v="sticker" title="WebM 512 px, прозрачный, до 3 секунд от курсора">стикер TG</button></div>
     <div id="xAlphaHint" class="hint" hidden>Фон, дым и частицы не попадут в видео — останутся карточки, текст и эмодзи. MOV (ProRes 4444) открывают Premiere, DaVinci, Final Cut и CapCut на компьютере; файл большой.</div>
     <label class="lbl">Качество</label>
     <div class="row seg" id="xRes"><button data-v="720">720p</button><button data-v="1080" class="on">1080p</button><button data-v="1440">1440p</button><button data-v="2160">4K</button></div>
     <label class="lbl">Кадров в секунду</label>
     <div class="row seg" id="xFps"><button data-v="30" class="on">30</button><button data-v="60">60 · плавнее, вдвое дольше</button></div>
-    <label class="chk" style="margin-top:12px"><input type="checkbox" id="xGpu" checked> кодировать видеокартой, если есть <span id="xGpuV" class="muted small"></span></label>
+    <label class="chk" style="margin-top:12px" title="Громкость ролика подгоняется под уровень площадок (−14 LUFS): тихий трек станет громче, слишком громкий — тише, без искажений. Площадки и сами приглушают громкие ролики, но тихие не усиливают"><input type="checkbox" id="xLoud"> выровнять громкость под площадки (−14 LUFS)</label>
+    <label class="chk"><input type="checkbox" id="xGpu" checked> кодировать видеокартой, если есть <span id="xGpuV" class="muted small"></span></label>
     <label class="chk" style="margin-top:6px"><input type="checkbox" id="xDraft"> черновик: 360p, 15 кадров/с — быстро проверить ролик</label>
     <div id="xInfo" class="muted small" style="margin-top:10px"></div>
     <div class="bar"><i id="xBar"></i></div>
@@ -324,6 +332,16 @@
     <label class="lbl">Фирменный цвет</label><input id="pfColor" type="color" value="#9B6BFF">
     <button id="pfApply" class="wide">Применить к текущему проекту</button>
     <button id="pfSave" class="primary wide">Сохранить профиль</button>
+  </div>
+</div>
+<div id="dropOv" hidden><div><b>Отпустите файл</b><span>трек · проект · пресет · LRC / SRT · картинка или видео для фона</span></div></div>
+<div id="mdModal" class="modal" hidden>
+  <div class="mbox" style="width:min(560px,92vw)">
+    <div class="mhead"><b>Модели нейросетей</b><div class="grow"></div><button class="ghost" id="mdClose">✕</button></div>
+    <div class="hint" style="margin-top:0">Все модели работают на этом компьютере, без интернета. Каждая скачивается один раз, когда впервые нужна; здесь их можно скачать заранее или удалить, чтобы освободить место.</div>
+    <div id="mdList" data-notr></div>
+    <div class="row" style="margin-top:10px"><span id="mdTotal" class="muted small" data-notr></span><div class="grow"></div><button id="mdCancel" class="ghost small" hidden>остановить загрузку</button></div>
+    <div id="mdStatus" class="status"></div>
   </div>
 </div>
 <div id="licModal" class="modal" hidden>

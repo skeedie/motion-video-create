@@ -141,8 +141,16 @@ function buildSpec(forExport, opts = {}) {
     const punch = [].concat(out.punch || []);
     if (s.widget && sc.bump != null && sc.bump !== '') punch.push({ word: '·', at: +sc.bump, style: 'bump' });
     if (s.widget && sc.stamp) punch.push({ word: sc.stamp, at: sc.stampAt !== '' && sc.stampAt != null ? +sc.stampAt : cx.word(cx.n - 2), style: 'stamp', color: '#16A34A', top: 12, right: 20, size: 26, rot: -9 });
+    const fxs = [];
+    if (sc.fx) fxs.push({ type: 'emoji', emoji: sc.fx, at: sc.fxAt !== '' && sc.fxAt != null ? +sc.fxAt : cx.word(0), dir: 'up', front: false, n: 12 });
+    // дополнительные акценты сцены: сколько угодно подпрыгиваний, штампов и эмодзи, каждый на своём слове
+    let stampN = sc.stamp ? 1 : 0;
+    (sc.accents || []).forEach(a => { const at = a.at !== '' && a.at != null && +a.at >= sc.a && +a.at < sc.b ? +a.at : null;
+      if (a.k === 'bump') { if (s.widget && at != null) punch.push({ word: '·', at, style: 'bump' }); }
+      else if (a.k === 'stamp') { if (s.widget && a.v) { punch.push({ word: a.v, at: at ?? cx.word(cx.n - 1), style: 'stamp', color: a.color || '#16A34A', top: 12 + 74 * stampN, right: 20 + 46 * (stampN % 2), size: 26, rot: stampN % 2 ? 7 : -9 }); stampN++; } }
+      else if (a.k === 'fx') { if (a.v) fxs.push({ type: 'emoji', emoji: a.v, at: at ?? cx.word(0), dir: 'up', front: false, n: 12 }); } });
     if (punch.length) s.punch = punch; else delete s.punch;
-    if (sc.fx) s.fx = { type: 'emoji', emoji: sc.fx, at: sc.fxAt !== '' && sc.fxAt != null ? +sc.fxAt : cx.word(0), dir: 'up', front: false, n: 12 };
+    if (fxs.length) s.fx = fxs.length === 1 ? fxs[0] : fxs;
     if (s.kinetic && c.on && !s.kinetic.accent) s.kinetic.accent = c.accent;
     if (sc.trans) s.trans = sc.trans; if (sc.cam) s.cam = sc.cam;
     ['dx', 'dy', 'dx2', 'dy2', 'k2scale'].forEach(k => { if (sc[k]) s[k] = sc[k]; });
@@ -174,8 +182,16 @@ function buildSpec(forExport, opts = {}) {
 const hexA = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
 const defFields = t => Object.fromEntries(t.fields.map(x => [x.k, defaultOf(t, x)]));
 
+// Текст песни и поля сцен — данные, а не разметка и не код:
+//  · «<» перед буквой в них экранируется, иначе строка вроде «a<b» съедалась как тег;
+//  · скрипт движка получает одноразовую метку (nonce), и политика страницы не исполняет ничего другого —
+//    чужой проект, пресет или шаблон не может выполнить свой код в окне редактора.
 function engineHTML(spec, base) {
-  return ENGINE.replace('<head>', `<head>${base ? `<base href="${base}">` : ''}<script>window.onerror=(m)=>{window.__err=String(m)}<\/script><link rel="stylesheet" href="fonts.css">`).replace('/*SPEC*/', 'window.SPEC=' + JSON.stringify(spec) + ';');
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+  const json = JSON.stringify(spec, (k, v) => typeof v === 'string' && v.indexOf('<') >= 0 && !v.startsWith('data:') ? v.replace(/<(?=[a-zA-Z\/!?])/g, '&lt;') : v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  return ENGINE.replace('<script>', () => `<script nonce="${nonce}">`)
+    .replace('<head>', () => `<head><meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}'; object-src 'none'">${base ? `<base href="${base}">` : ''}<script nonce="${nonce}">window.onerror=(m)=>{window.__err=String(m)}<\/script><link rel="stylesheet" href="fonts.css">`)
+    .replace('/*SPEC*/', () => 'window.SPEC=' + json + ';');
 }
 
 // вырезанные проигрыши: время трека (исходное) ↔ время ролика
@@ -311,6 +327,8 @@ function fitStage() {
   $('#stage').style.width = W * k + 'px'; $('#stage').style.height = H * k + 'px'; $('#preview').style.transform = `scale(${k})`; drawSafe();
 }
 window.addEventListener('resize', fitStage);
+// панели вокруг превью меняют высоту (перенос строк, таймлайн) — подгоняем превью под то, что реально осталось
+try { new ResizeObserver(() => fitStage()).observe($('#stageWrap')); } catch (e) {}
 const curT = () => audio.src ? audio.currentTime : (window.__t ?? (+proj.style.start || 0));
 function seek(t) { if (!audio.src) window.__t = t; const cw = $('#preview').contentWindow; if (frameReady && cw && cw.seek) try { cw.__playing = playing; cw.seek(s2o(t, CUTS)); } catch (e) {} updateTransport(t); }
 function seekTo(t) { const s = +proj.style.start || 0, e = +proj.style.end || proj.duration || 0; t = Math.max(0, Math.min(Math.max(e, proj.duration || 0), t)); if (audio.src) audio.currentTime = t; seek(t); }
@@ -353,7 +371,7 @@ function sfxEvents(spec) {
       else if (tpl.id === 'achievement' || tpl.id === 'pcach') push(w0.t, 'chime', .9);
       else if (SFX_CAT[tpl.cat]) walk(s.widget, t => push(t - .03, SFX_CAT[tpl.cat], .8));
     }
-    if (sx.acc) { (s.punch || []).forEach(p => { if (typeof p.at === 'number' && W[p.at]) push(W[p.at].t, p.style === 'stamp' ? 'thump' : 'pop', p.style === 'stamp' ? 1 : .6); }); if (s.fx && typeof s.fx.at === 'number' && W[s.fx.at]) push(W[s.fx.at].t, 'pop', .7); }
+    if (sx.acc) { (s.punch || []).forEach(p => { if (typeof p.at === 'number' && W[p.at]) push(W[p.at].t, p.style === 'stamp' ? 'thump' : 'pop', p.style === 'stamp' ? 1 : .6); }); [].concat(s.fx || []).forEach(f => { if (typeof f.at === 'number' && W[f.at]) push(W[f.at].t, 'pop', .7); }); }
   });
   if (sx.acc) W.forEach(w => { if (w.acc && (w.acc.zoom || w.acc.shake)) push(w.t, 'hit', .8); else if (w.acc && w.acc.emoji) push(w.t + .04, 'pop', .7); });
   if (sx.trans && spec.intro) push(spec.intro.t0 + .1, 'whoosh', .7);
@@ -411,7 +429,7 @@ $('#bAlign').onclick = async () => {
   proj.lyrics = $('#lyrics').value; proj.alFrom = $('#alFrom').value; proj.alTo = $('#alTo').value;
   if (!proj.audioPath) return toast('Сначала выберите трек');
   if (!proj.lyrics.trim()) return toast('Вставьте текст песни');
-  const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; $('#bAlign').disabled = true;
+  const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; alBusy(true);
   try {
     const g = guessLang(proj.lyrics); if (g && g !== $('#alLang').value) { $('#alLang').value = g; toast(g === 'en' ? 'Текст на английском — включил английскую модель' : 'Текст на русском — включил русскую модель', 3000); }
     proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked; proj.vocalsQ = $('#alVocalsQ').value;
@@ -421,9 +439,13 @@ $('#bAlign').onclick = async () => {
     if (!beatInfo) analyzeBeats(); if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
     st.className = 'status ok'; st.textContent = `Готово: ${r.words.length} слов, ${proj.scenes.length} сцен.` + (r.median < 0.15 ? '\nВокал плохо слышно — проверьте тайминги на таймлайне.' : '');
     fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50);
-  } catch (e) { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'синхронизация: ' + (e.message || e)); }
-  $('#bAlign').disabled = false;
+  } catch (e) { if (wasCancelled(e)) { st.className = 'status'; st.textContent = 'Отменено.'; } else { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'синхронизация: ' + (e.message || e)); } }
+  alBusy(false);
 };
+// долгие операции с нейросетью можно остановить: синхронизацию, распознавание, отделение вокала, загрузку модели
+const wasCancelled = e => /__cancel/.test(String(e && e.message || e));
+function alBusy(on) { $('#alCancel').hidden = !on; $('#alCancel').disabled = false; $('#bRecog').disabled = $('#bAlign').disabled = on; }
+$('#alCancel').onclick = () => { $('#alCancel').disabled = true; $('#alignStatus').textContent = 'Останавливаю…'; api.cancelModel().catch(() => {}); };
 // язык по самому тексту: латиница без кириллицы — английский, и наоборот
 function guessLang(text) {
   const t = String(text).replace(/\{[^}]*\}/g, ''), cy = (t.match(/[а-яё]/gi) || []).length, la = (t.match(/[a-z]/gi) || []).length;
@@ -455,19 +477,19 @@ $('#bRecog').onclick = async () => {
   if (!proj.audioPath) return toast('Сначала выберите трек');
   if ($('#lyrics').value.trim() && !confirm('Заменить текст в поле распознанным с трека?')) return;
   proj.alFrom = $('#alFrom').value; proj.alTo = $('#alTo').value; proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked; proj.vocalsQ = $('#alVocalsQ').value;
-  const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; $('#bRecog').disabled = $('#bAlign').disabled = true;
+  const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; alBusy(true);
   try {
     if (!beatInfo) analyzeBeats();
     const r = await api.transcribe({ audioPath: proj.audioPath, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals, vocalsQ: proj.vocalsQ }, p => { st.textContent = p; });
     const words = r.words.map(w => ({ w: w.w, t: w.t, e: w.e, e0: w.e0, conf: w.conf }));
     proj.lyrics = wordsToLines(words); $('#lyrics').value = proj.lyrics;
-    proj.words = words.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })); markAdlibs(proj.words);
+    proj.words = words.map(w => Object.assign({ w: w.w, t: w.t, e: w.e, line: w.line }, w.conf < .6 ? { unsure: true } : null)); markAdlibs(proj.words);
     if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
     const lines = proj.words.length ? proj.words[proj.words.length - 1].line + 1 : 0, unsure = words.filter(w => w.conf < .6).length;
-    st.className = 'status ok'; st.textContent = `Распознано: ${words.length} слов, ${lines} строк${unsure ? `, неуверенно — ${unsure}` : ''}. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления.`;
+    st.className = 'status ok'; st.textContent = `Распознано: ${words.length} слов, ${lines} строк${unsure ? `, неуверенно — ${unsure} (они подсвечены на вкладке «Слова» и на таймлайне)` : ''}. Нейросеть ошибается в сленге и именах: поправьте текст в поле и нажмите «Синхронизировать слова» — тайминги подстроятся под исправления.`;
     fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50); touch();
-  } catch (e) { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'распознавание: ' + (e.message || e)); }
-  $('#bRecog').disabled = $('#bAlign').disabled = false;
+  } catch (e) { if (wasCancelled(e)) { st.className = 'status'; st.textContent = 'Отменено.'; } else { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'распознавание: ' + (e.message || e)); } }
+  alBusy(false);
 };
 // сильные доли (начала тактов): из каждых 4 битов берётся тот, где удар в низах сильнее
 function downbeats() {
@@ -568,10 +590,13 @@ $$('#perScene button').forEach(b => b.onclick = () => { proj.perScene = +b.datas
 // ---------- слова ----------
 function renderWords() {
   const box = $('#wordList'); box.innerHTML = ''; let ln = -1;
+  const nUnsure = proj.words.filter(w => w.unsure).length;
+  if (nUnsure) { const h = document.createElement('div'); h.className = 'hint unsureHint'; h.innerHTML = `<span>${esc(T(`Неуверенно распознанных слов: ${nUnsure}. Они подсвечены. Послушайте их; если слово верное, нажмите на «?».`))}</span><button class="ghost small" style="margin-left:6px">${esc(T('снять все'))}</button>`;
+    h.querySelector('button').onclick = () => { proj.words.forEach(w => delete w.unsure); renderWords(); Timeline.redraw(); touch(); }; box.append(h); }
   proj.words.forEach((w, i) => {
-    const d = document.createElement('div'); d.className = 'w' + (w.line !== ln ? ' ln' : ''); ln = w.line;
-    d.innerHTML = `<span>${esc(w.w)}</span><button data-d="-0.05">−</button><span class="mono">${w.t.toFixed(2)}</span><button data-d="0.05">+</button>`;
-    d.children[0].onclick = () => seekTo(Math.max(0, w.t - .15));
+    const d = document.createElement('div'); d.className = 'w' + (w.line !== ln ? ' ln' : '') + (w.unsure ? ' unsure' : ''); ln = w.line;
+    d.innerHTML = `<span>${esc(w.w)}${w.unsure ? `<b class="uq" title="${esc(T('Нейросеть не уверена в этом слове. Нажмите, если оно верное'))}">?</b>` : ''}</span><button data-d="-0.05">−</button><span class="mono">${w.t.toFixed(2)}</span><button data-d="0.05">+</button>`;
+    d.children[0].onclick = e => { if (e.target.classList.contains('uq')) { delete w.unsure; renderWords(); Timeline.redraw(); touch(); return; } seekTo(Math.max(0, w.t - .15)); };
     d.querySelectorAll('button').forEach(b => b.onclick = () => { w.t = +(w.t + +b.dataset.d).toFixed(2); w.e = Math.max(w.e, w.t + .05); d.querySelector('.mono').textContent = w.t.toFixed(2); scheduleRebuild(); });
     box.append(d);
   });
@@ -638,6 +663,7 @@ function renderScene() {
   const card = !t.nocard; $('#seCardOnly').hidden = !card; $('#seScaleBox').hidden = !card;
   $('#seBump').innerHTML = wordOptions(sc, sc.bump); $('#seStamp').value = sc.stamp || ''; $('#seStampAt').innerHTML = wordOptions(sc, sc.stampAt, 'авто');
   $('#seFx').value = sc.fx || ''; $('#seFxAt').innerHTML = wordOptions(sc, sc.fxAt, 'авто');
+  renderAccents(sc, card);
   $('#seTrans').value = sc.trans || ''; $('#seCam').value = sc.cam || '';
   $('#seScale').value = sc.scale || defScale(sc); $('#seScaleV').textContent = (+$('#seScale').value).toFixed(2);
 }
@@ -714,6 +740,23 @@ $('#seStamp').oninput = e => { proj.scenes[sel].stamp = e.target.value; schedule
 $('#seStampAt').onchange = e => { proj.scenes[sel].stampAt = e.target.value; scheduleRebuild(); };
 $('#seFx').oninput = e => { proj.scenes[sel].fx = e.target.value; scheduleRebuild(); };
 $('#seFxAt').onchange = e => { proj.scenes[sel].fxAt = e.target.value; scheduleRebuild(); };
+// дополнительные акценты: строка = вид + (текст или эмодзи) + слово, на котором сработает
+const ACC_KINDS = [['bump', 'подпрыгнуть'], ['stamp', 'штамп'], ['fx', 'эмодзи']];
+function renderAccents(sc, card) {
+  const box = $('#seAccList'); box.innerHTML = '';
+  (sc.accents || []).forEach((a, i) => {
+    const kinds = ACC_KINDS.filter(([k]) => card || k === 'fx'), d = document.createElement('div'); d.className = 'row tight accRow';
+    d.innerHTML = `<select data-f="k" style="width:auto;flex:none">${kinds.map(([k, n]) => `<option value="${k}" ${a.k === k ? 'selected' : ''}>${n}</option>`).join('')}</select>` +
+      (a.k === 'bump' ? '' : `<input data-f="v" ${a.k === 'fx' ? 'class="emo" placeholder="✨"' : 'placeholder="Понятно ✓"'} value="${esc(a.v || '')}" style="flex:1;min-width:0">`) +
+      `<select data-f="at" style="flex:1;min-width:0">${wordOptions(sc, a.at, a.k === 'bump' ? 'слово…' : 'авто')}</select><button class="del" title="Убрать акцент" style="flex:none">×</button>`;
+    d.onchange = d.oninput = e => { const f = e.target.dataset.f; if (!f) return; a[f] = e.target.value; if (f === 'k') { if (a.k === 'bump') delete a.v; renderAccents(sc, card); } scheduleRebuild(); };
+    d.querySelector('.del').onclick = () => { sc.accents.splice(i, 1); if (!sc.accents.length) delete sc.accents; renderAccents(sc, card); scheduleRebuild(); };
+    box.append(d);
+  });
+  $('#seAccAdd').onclick = () => { const cur = curWordIn(sc); (sc.accents = sc.accents || []).push({ k: card ? 'bump' : 'fx', at: cur != null ? String(cur) : '', v: card ? undefined : '✨' }); renderAccents(sc, card); scheduleRebuild(); };
+}
+// слово сцены под курсором воспроизведения — новый акцент встаёт на него
+function curWordIn(sc) { const t = curT(); let best = null; for (let i = sc.a; i < sc.b; i++) if (proj.words[i] && proj.words[i].t <= t + .05) best = i; return best; }
 $('#seScale').oninput = e => { proj.scenes[sel].scale = +e.target.value; $('#seScaleV').textContent = (+e.target.value).toFixed(2); scheduleRebuild(200); };
 function mergePrev() { if (sel < 1) return; const p = proj.scenes[sel - 1]; p.b = proj.scenes[sel].b; proj.scenes.splice(sel, 1); sel--; renderAll(); scheduleRebuild(); }
 function mergeNext() { if (sel >= proj.scenes.length - 1) return; const c = proj.scenes[sel]; c.b = proj.scenes[sel + 1].b; proj.scenes.splice(sel + 1, 1); renderAll(); scheduleRebuild(); }
@@ -827,13 +870,7 @@ function fillStyle() {
   $('#outOn').checked = !!oo.on; $('#outText').value = oo.text || ''; $('#outDur').value = oo.dur; $('#outSub').value = oo.sub || ''; $('#adlibs').value = st.adlibs || 'chip';
   updateTransport(curT());
 }
-async function pickMedia() {
-  const f = await api.pickMedia(); if (!f) return null;
-  if (f.kind === 'video') return { type: 'video', path: f.path, name: f.name, asset: undefined };
-  const bmp = await createImageBitmap(new Blob([f.data])), k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), c = document.createElement('canvas');
-  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  const id = uid(); proj.assets[id] = c.toDataURL('image/jpeg', 0.9); return { type: 'image', asset: id, name: f.name, path: undefined };
-}
+async function pickMedia() { const f = await api.pickMedia(); if (!f) return null; return mediaFromFile(f); }
 ['bgBlur', 'bgDim'].forEach(id => $('#' + id).addEventListener('input', e => { const bm = proj.style.bgMedia; if (!bm) return; bm[id === 'bgBlur' ? 'blur' : 'dim'] = +e.target.value; $('#' + id + 'V').textContent = id === 'bgBlur' ? e.target.value + ' px' : Math.round(e.target.value * 100) + '%'; scheduleRebuild(250); }));
 $('#bgZoom').onchange = e => { if (proj.style.bgMedia) { proj.style.bgMedia.zoom = e.target.checked; scheduleRebuild(50); } };
 const bindIO = (sel, obj, key, conv = v => v, ev = 'input') => $(sel).addEventListener(ev, e => { proj.style[obj][key] = conv(e.target.type === 'checkbox' ? e.target.checked : e.target.value); specCache = null; scheduleRebuild(300); });
@@ -922,7 +959,10 @@ $('#bPresetExport').onclick = async () => {
   const p = await api.exportPreset(JSON.stringify({ lyricStudioPreset: 1, name, preset: data }, null, 1), name); if (p) toast('Пресет сохранён в файл');
 };
 $('#bPresetImport').onclick = async () => {
-  const list = await api.importPreset(); if (!list) return; let n = 0, last = null;
+  const list = await api.importPreset(); if (!list) return; await addPresets(list);
+};
+async function addPresets(list) {
+  let n = 0, last = null;
   for (const it of list) {
     try { const j = JSON.parse(it.json), p = j.preset || j; if (typeof p !== 'object' || Array.isArray(p)) throw 0; let name = (j.name || it.name || 'пресет').slice(0, 40); while (PRESETS[name] || (USER_PRESETS[name] && JSON.stringify(USER_PRESETS[name]) !== JSON.stringify(p))) name += ' 2'; USER_PRESETS[name] = p; n++; last = name; }
     catch (e) { toastErr('Файл «' + it.name + '» не похож на пресет'); }
@@ -961,12 +1001,21 @@ function applyProject(p, path) {
   sel = 0; specCache = null; beatInfo = null; showBpm(); registerFonts();
 }
 async function afterLoad() {
-  if (proj.audioPath) { try { await loadAudio({ path: proj.audioPath, name: proj.audioName }); } catch (e) { audio.removeAttribute('src'); audioData = null; toast('Трек не найден по старому пути — выберите его заново', 4500); } }
+  if (proj.audioPath) { try { await loadAudio({ path: proj.audioPath, name: proj.audioName }); } catch (e) { audio.removeAttribute('src'); audioData = null; $('#audioName').textContent = (proj.audioName || 'трек') + ' — не найден';
+      if (confirm(`Трек «${proj.audioName || ''}» не найден по старому пути: файл переместили или переименовали. Указать, где он лежит?`)) { const info = await api.pickAudio(); if (info) { try { await loadAudio(info); touch(); toast('Трек подключён заново'); } catch (x) { toastErr('Не удалось прочитать файл: ' + x.message); } } }
+      else toast('Трек не подключён — выберите его кнопкой «Выбрать файл…»', 4500); } }
   renderAll(); Timeline.fit(); histReset(); dirty = false; updTitle(); rebuildPreview();
+}
+// В файл проекта идут только те картинки и шрифты, что сейчас используются. Заменённые и «вырезанные» версии
+// остаются в памяти (для отмены), но в файл и в автосохранение не попадают — проект не разбухает.
+function projJSON() {
+  const { assets, ...rest } = proj, body = JSON.stringify(rest), used = {};
+  for (const k in assets || {}) { const q = JSON.stringify(k).slice(1, -1); if (body.includes('asset:' + q) || body.includes('"asset":"' + q + '"')) used[k] = assets[k]; }
+  return JSON.stringify(Object.assign({}, rest, { assets: used }));
 }
 async function saveProject(as) {
   proj.lyrics = $('#lyrics').value;
-  const p = await api.saveProject(JSON.stringify(proj), (proj.audioName || 'проект').replace(/\.[^.]+$/, '') + '.lsp', as ? null : projPath);
+  const p = await api.saveProject(projJSON(), (proj.audioName || 'проект').replace(/\.[^.]+$/, '') + '.lsp', as ? null : projPath);
   if (p) { projPath = p; dirty = false; updTitle(); api.clearAutosave(); toast('Сохранено'); }
 }
 async function openProject(path) {
@@ -989,27 +1038,27 @@ function newFrom(keepStyle) {
 const menuBtn = (btn, menu, acts) => { $(btn).onclick = e => { e.stopPropagation(); ['#openMenu', '#helpMenu', '#newMenu', '#saveMenu'].forEach(m => { if (m !== menu) $(m).hidden = true; }); $(menu).hidden = !$(menu).hidden; };
   $$(menu + ' button').forEach(b => b.onclick = () => { $(menu).hidden = true; acts[b.dataset.act](); }); };
 menuBtn('#bNew', '#newMenu', { blank: () => newFrom(false), style: () => newFrom(true), batch: openBatch });
-menuBtn('#bSave', '#saveMenu', { save: () => saveProject(false), as: () => saveProject(true), bundle: saveBundle });
+menuBtn('#bSave', '#saveMenu', { save: () => saveProject(false), as: () => saveProject(true), bundle: saveBundle, lrc: () => exportTimings('lrc'), srt: () => exportTimings('srt') });
 async function saveBundle() {
   if (!proj.audioPath) return toast('В проекте нет трека');
   proj.lyrics = $('#lyrics').value; const name = (proj.audioName || 'проект').replace(/\.[^.]+$/, '');
-  try { const p = await api.saveBundle(JSON.stringify(proj), name + '.lspz'); if (p) toast('Сохранено вместе с треком: ' + p.split(/[\\/]/).pop(), 3000); } catch (e) { toastErr('Не удалось сохранить: ' + e.message); }
+  try { const p = await api.saveBundle(projJSON(), name + '.lspz'); if (p) toast('Сохранено вместе с треком: ' + p.split(/[\\/]/).pop(), 3000); } catch (e) { toastErr('Не удалось сохранить: ' + e.message); }
 }
 $('#bOpen').onclick = async e => {
   e.stopPropagation(); const m = $('#openMenu'); if (!m.hidden) { m.hidden = true; return; }
   const rec = await api.recent();
-  m.innerHTML = `<button data-p="">Открыть файл…</button>` + (rec.length ? '<div class="msep">Недавние</div>' + rec.map(r => `<button data-p="${esc(r.path)}" title="${esc(r.path)}">${esc(r.name)}<span class="muted small"> · ${new Date(r.time).toLocaleDateString('ru-RU')}</span></button>`).join('') : '');
-  m.querySelectorAll('button').forEach(b => b.onclick = () => { m.hidden = true; openProject(b.dataset.p || undefined); }); m.hidden = false;
+  m.innerHTML = `<button data-p="">Открыть файл…</button><button data-timing="1" title="Готовые тайминги строк: слова расставятся по ним без нейросети">Тайминги из LRC / SRT…</button>` + (rec.length ? '<div class="msep">Недавние</div>' + rec.map(r => `<button data-p="${esc(r.path)}" title="${esc(r.path)}">${esc(r.name)}<span class="muted small"> · ${new Date(r.time).toLocaleDateString('ru-RU')}</span></button>`).join('') : '');
+  m.querySelectorAll('button').forEach(b => b.onclick = async () => { m.hidden = true; if (b.dataset.timing) { const f = await api.openText(['lrc', 'srt'], 'Тайминги: LRC или SRT'); if (f) importTimings(f.text, f.name); return; } openProject(b.dataset.p || undefined); }); m.hidden = false;
 };
 $('#bHelp').onclick = e => { e.stopPropagation(); const m = $('#helpMenu'); m.hidden = !m.hidden; };
 document.addEventListener('click', () => { ['#openMenu', '#helpMenu', '#newMenu', '#saveMenu'].forEach(m => $(m).hidden = true); });
 $$('#helpMenu button').forEach(b => b.onclick = () => {
   const a = b.dataset.act; $('#helpMenu').hidden = true;
-  if (a === 'keys') $('#keysModal').hidden = false; else if (a === 'report') copyReport(); else if (a === 'logs') api.openLogFolder(); else if (a === 'update') checkUpdate(true); else if (a === 'selftest') openSelfTest(); else if (a === 'licenses') openLicenses(); else if (a === 'lang') setLang(LANG === 'en' ? 'ru' : 'en');
+  if (a === 'keys') $('#keysModal').hidden = false; else if (a === 'report') copyReport(); else if (a === 'logs') api.openLogFolder(); else if (a === 'update') checkUpdate(true); else if (a === 'selftest') openSelfTest(); else if (a === 'licenses') openLicenses(); else if (a === 'models') openModels(); else if (a === 'lang') setLang(LANG === 'en' ? 'ru' : 'en');
 });
-setInterval(() => { if (dirty && (proj.words.length || proj.lyrics)) { proj.lyrics = $('#lyrics').value; api.autosave(JSON.stringify(proj)).catch(() => {}); } }, 15000);
+setInterval(() => { if (dirty && (proj.words.length || proj.lyrics)) { proj.lyrics = $('#lyrics').value; api.autosave(projJSON()).catch(() => {}); } }, 15000);
 window.__beforeClose = async () => {
-  if (dirty && (proj.words.length || proj.lyrics)) { proj.lyrics = $('#lyrics').value; try { await api.autosave(JSON.stringify(proj)); } catch (e) {} }
+  if (dirty && (proj.words.length || proj.lyrics)) { proj.lyrics = $('#lyrics').value; try { await api.autosave(projJSON()); } catch (e) {} }
   else { try { await api.clearAutosave(); } catch (e) {} }
   return true;
 };
@@ -1050,6 +1099,8 @@ function selfTestSpec() {
   spec.scenes = [{ words: [0, 2], t0: 0, t1: 1.4, widget: { type: 'player', title: en ? 'system check' : 'проверка системы', artist: 'Lyric Studio', emoji: '🎧' } }, { words: [2, 4], t0: 1.4, t1: 3, kinetic: { mode: 'stack', accent: '#E10600', words: ws[3], rot: 4 } }];
   return spec;
 }
+// контрольный ролик для автоматической проверки экспорта
+window.__ciJob = fmt => { const keep = proj.style.format; proj.style.format = fmt; let spec; try { spec = selfTestSpec(); } finally { proj.style.format = keep; } const [W, H] = FMT[fmt]; return { html: engineHTML(spec, 'app://app/'), W, H }; };
 async function runSelfTest() {
   if (stBusy) return; stBusy = true; $('#stRun').disabled = true; $('#stBar').style.width = '0'; const st = $('#stStatus'); st.className = 'status'; st.textContent = 'Проверяю компоненты…';
   stLines = [{ group: 'Проверка', name: 'Компоненты', level: 'run', text: 'проверяю…' }]; stRender();
@@ -1085,6 +1136,78 @@ function setLang(l) {
   try { sessionStorage.setItem('ls-reload', JSON.stringify({ proj, path: projPath, dirty })); } catch (e) {}
   api.setLang(l).catch(() => {}).finally(() => location.reload());
 }
+// ---------- тайминги: экспорт LRC / SRT и импорт ----------
+function timingLines() { const L = []; proj.words.forEach(w => { const l = L[L.length - 1]; if (!l || l.line !== w.line) L.push({ line: w.line, t: w.t, e: w.e, text: w.w }); else { l.text += ' ' + w.w; l.e = Math.max(l.e, w.e); } }); return L; }
+async function exportTimings(kind) {
+  if (!proj.words.length) return toast('Сначала синхронизируйте слова');
+  const L = timingLines(), p2 = n => String(n).padStart(2, '0'), base = (proj.audioName || 'lyrics').replace(/\.[^.]+$/, ''); let out = '';
+  if (kind === 'lrc') { out = L.map(l => `[${p2(Math.floor(l.t / 60))}:${(l.t % 60).toFixed(2).padStart(5, '0')}]${l.text}`).join('\n') + '\n'; }
+  else {
+    // субтитры идут по времени готового ролика: от начала отрезка и без вырезанных проигрышей
+    const [a, b] = effRange(), cuts = activeCuts(a, b), vt = t => Math.max(0, s2o(Math.min(Math.max(t, a), b), cuts) - s2o(a, cuts)), f = t => { const ms = Math.round(t * 1000); return `${p2(Math.floor(ms / 3600000))}:${p2(Math.floor(ms / 60000) % 60)}:${p2(Math.floor(ms / 1000) % 60)},${String(ms % 1000).padStart(3, '0')}`; };
+    const V = L.filter(l => l.e > a && l.t < b && !cuts.some(c => l.t >= c.a && l.e <= c.b)); if (!V.length) return toast('В выбранном отрезке ролика нет строк');
+    out = V.map((l, i) => { const t0 = vt(l.t), t1 = Math.max(t0 + .3, Math.min(V[i + 1] ? vt(V[i + 1].t) - .02 : 1e9, vt(l.e) + .7)); return `${i + 1}\n${f(t0)} --> ${f(t1)}\n${l.text}\n`; }).join('\n');
+  }
+  try { const p = await api.saveText(out, base, kind, kind === 'lrc' ? 'Сохранить тайминги LRC' : 'Сохранить субтитры SRT'); if (p) toast(kind === 'lrc' ? 'LRC сохранён — время строк по треку' : 'SRT сохранён — время по готовому ролику', 3200); } catch (e) { toastErr('Не удалось сохранить: ' + e.message); }
+}
+function parseTimings(text) {
+  const L = [], sec = (h, m, s2) => (+h || 0) * 3600 + (+m || 0) * 60 + parseFloat(String(s2).replace(',', '.'));
+  if (/-->/.test(text)) { text.replace(/\r/g, '').split(/\n\s*\n/).forEach(bl => { const ls = bl.split('\n').filter(x => x.trim() !== ''), i = ls.findIndex(x => x.includes('-->')); if (i < 0) return; const m = ls[i].match(/(?:(\d+):)?(\d+):(\d+[.,]\d+)\s*-->\s*(?:(\d+):)?(\d+):(\d+[.,]\d+)/); if (!m) return; const tx = ls.slice(i + 1).join(' ').replace(/<[^>]+>|\{[^}]+\}/g, '').trim(); if (tx) L.push({ t: sec(m[1], m[2], m[3]), e: sec(m[4], m[5], m[6]), text: tx }); }); }
+  else { text.split(/\r?\n/).forEach(ln => { const ts = [...ln.matchAll(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g)], tx = ln.replace(/\[[^\]]*\]/g, '').replace(/<\d+:\d+(?:\.\d+)?>/g, '').trim(); if (!ts.length || !tx) return; ts.forEach(m => L.push({ t: +m[1] * 60 + parseFloat(m[2].replace(':', '.')), text: tx })); }); L.sort((x, y) => x.t - y.t); }
+  return L;
+}
+function importTimings(text, name) {
+  const L = parseTimings(text); if (!L.length) return toastErr('В файле не нашлось строк с временем — нужен LRC или SRT');
+  if (proj.words.length && !confirm('Заменить текст и тайминги проекта данными из файла?')) return;
+  const words = [];
+  L.forEach((l, i) => { const ws = l.text.split(/\s+/).filter(Boolean), next = L[i + 1] ? L[i + 1].t : 1e9, end = Math.max(l.t + .3, Math.min(l.e != null ? l.e : 1e9, next - .05, l.t + Math.max(1.2, ws.length * .55))), total = ws.reduce((a, w) => a + [...w].length + 1, 0); let acc = 0;
+    ws.forEach(w => { const d = ([...w].length + 1) / total * (end - l.t); words.push({ w, t: +(l.t + acc).toFixed(2), e: +(l.t + acc + d * .9).toFixed(2), line: i }); acc += d; }); });
+  proj.lyrics = L.map(l => l.text).join('\n'); $('#lyrics').value = proj.lyrics; proj.words = words; markAdlibs(proj.words);
+  if (!proj.duration) proj.duration = words[words.length - 1].e + 2;
+  if (!beatInfo && audioData) analyzeBeats(); if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
+  const st = $('#alignStatus'); st.className = 'status ok'; st.textContent = `Тайминги из «${name}»: ${L.length} строк, ${words.length} слов. Начала строк — из файла, слова внутри строки расставлены равномерно. Для точности по словам нажмите «Синхронизировать слова».`;
+  fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50); touch();
+}
+// ---------- файлы, брошенные в окно ----------
+window.__openPath = p => openProject(p);
+async function mediaFromFile(f) {
+  if (f.kind === 'video') return { type: 'video', path: f.path, name: f.name, asset: undefined };
+  const bmp = await createImageBitmap(new Blob([f.data])), k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  const id = uid(); proj.assets[id] = c.toDataURL('image/jpeg', 0.9); return { type: 'image', asset: id, name: f.name, path: undefined };
+}
+async function dropFile(path) {
+  let f = null; try { f = await api.fileKind(path); } catch (e) {}
+  if (!f) return toast('Этот файл не подходит. Можно бросать: трек, проект, пресет, LRC/SRT, картинку или видео для фона', 4500);
+  if (f.kind === 'project') return openProject(f.path);
+  if (f.kind === 'audio') { try { await loadAudio({ path: f.path, name: f.name }); proj.duration = audioData.duration; fillStyle(); Timeline.fit(); touch(); toast('Трек загружен'); } catch (e) { toastErr('Не удалось прочитать файл: ' + e.message); } return; }
+  if (f.kind === 'preset') return addPresets([{ name: f.name.replace(/\.(lspreset|json)$/i, ''), json: f.text }]);
+  if (f.kind === 'timing') return importTimings(f.text, f.name);
+  try { const m = await mediaFromFile(f), st = proj.style; st.bgMedia = Object.assign({ blur: 0, dim: 0.25, zoom: true }, st.bgMedia || {}, m); fillStyle(); scheduleRebuild(50); toast(f.kind === 'video' ? 'Видео поставлено фоном' : 'Картинка поставлена фоном'); } catch (e) { toastErr('Не удалось открыть файл: ' + e.message); }
+}
+{ let depth = 0; const ov = $('#dropOv'), files = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+  window.addEventListener('dragenter', e => { if (!files(e)) return; e.preventDefault(); depth++; ov.hidden = false; });
+  window.addEventListener('dragover', e => { if (files(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  window.addEventListener('dragleave', e => { if (!files(e)) return; depth = Math.max(0, depth - 1); if (!depth) ov.hidden = true; });
+  window.addEventListener('drop', e => { if (!files(e)) return; e.preventDefault(); depth = 0; ov.hidden = true; const f = e.dataTransfer.files[0], p = f && api.pathOf ? api.pathOf(f) : ''; if (p) dropFile(p); else if (f) toast('Не удалось получить путь к файлу'); }); }
+// ---------- модели нейросетей: что скачано, сколько занимает ----------
+let mdBusy = false;
+async function openModels() { $('#mdModal').hidden = false; $('#mdStatus').textContent = ''; await renderModels(); }
+async function renderModels() {
+  const box = $('#mdList'); let list = []; try { list = await api.modelsInfo(); } catch (e) { box.textContent = String(e.message || e); return; }
+  const MB = LANG === 'en' ? ' MB' : ' МБ', mb = b => (b / 2 ** 20).toFixed(0) + MB, total = list.reduce((a, m) => a + m.size, 0);
+  box.innerHTML = list.map(m => `<div class="md"><div><b>${esc(T(m.name))}</b><div class="muted small">${m.have ? T('скачана') + ' · ' + mb(m.size) : T('не скачана') + ' · ≈' + m.mb + MB}</div></div><button class="small ${m.have ? 'ghost' : ''}" data-k="${esc(m.key)}" data-a="${m.have ? 'del' : 'get'}">${m.have ? T('удалить') : T('скачать')}</button></div>`).join('');
+  $('#mdTotal').textContent = T('Всего на диске') + ': ' + mb(total);
+  box.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    if (mdBusy) return; const st = $('#mdStatus');
+    if (b.dataset.a === 'del') { if (!confirm('Удалить модель с диска? Она скачается заново, когда понадобится.')) return; await api.modelDelete(b.dataset.k); st.className = 'status'; st.textContent = ''; return renderModels(); }
+    mdBusy = true; $('#mdCancel').hidden = false; st.className = 'status'; st.textContent = 'Готовлюсь…';
+    try { await api.modelGet(b.dataset.k, t => { st.textContent = t; }); st.className = 'status ok'; st.textContent = 'Модель скачана.'; }
+    catch (e) { if (wasCancelled(e)) { st.className = 'status'; st.textContent = 'Отменено.'; } else { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); } }
+    mdBusy = false; $('#mdCancel').hidden = true; renderModels();
+  });
+}
+$('#mdClose').onclick = () => { $('#mdModal').hidden = true; }; $('#mdCancel').onclick = () => api.cancelModel().catch(() => {});
 async function openLicenses() { $('#licModal').hidden = false; try { $('#licText').textContent = await (await fetch('licenses.txt')).text(); } catch (e) { $('#licText').textContent = String(e); } }
 $('#licClose').onclick = () => $('#licModal').hidden = true;
 function openSelfTest() { $('#stModal').hidden = false; runSelfTest(); }
@@ -1121,6 +1244,7 @@ let exporting = false;
 const segOn = id => $$(id + ' button').find(b => b.classList.contains('on'));
 $$('#exportModal .seg').forEach(g => g.querySelectorAll('button').forEach(b => b.onclick = () => { g.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); exportInfo(); }));
 $('#xDraft').onchange = exportInfo;
+try { $('#xLoud').checked = localStorage.getItem('ls-loud') === '1'; } catch (e) {} $('#xLoud').onchange = e => { try { localStorage.setItem('ls-loud', e.target.checked ? '1' : '0'); } catch (x) {} };
 $$('#xPlat button').forEach(b => b.addEventListener('click', () => {
   const v = b.dataset.v; if (!v) return;
   if (proj.style.format !== '9:16') { proj.style.format = '9:16'; fillStyle(); scheduleRebuild(50); }
@@ -1142,7 +1266,7 @@ function makeJob(o, format) {
       return { _spec: spec, html: engineHTML(spec, 'app://app/'), W, H, width: W >= H ? 512 : Math.round(512 * W / H / 2) * 2, start: spec._srcA, end: spec._srcB, vStart: u0, outDur: dur, fps: 30, container: 'sticker', name: (proj.audioName || 'sticker').replace(/\.[^.]+$/, '') + T('-стикер') }; }
     return { _spec: spec, html: engineHTML(spec, 'app://app/'), W, H, width: W >= H ? Math.round(o.res * W / H / 2) * 2 : o.res, start: spec._srcA, end: spec._srcB, outDur: +spec.end - +spec.start, cuts: spec._cuts,
       fade: +proj.style.fade || 0, fadeIn: +proj.style.fadeIn || 0, fadeOut: +proj.style.fade || 0, fadeCurve: proj.style.fadeCurve || 'smooth', audioPath: proj.audioPath,
-      fps: o.fps, draft: o.draft, container: o.container, gpu: $('#xGpu').checked, name: (proj.audioName || 'video').replace(/\.[^.]+$/, '') + (o.draft ? T('-черновик') : '') + (format ? '-' + format.replace(':', 'x') : '') };
+      fps: o.fps, draft: o.draft, container: o.container, gpu: $('#xGpu').checked, loud: $('#xLoud').checked, name: (proj.audioName || 'video').replace(/\.[^.]+$/, '') + (o.draft ? T('-черновик') : '') + (format ? '-' + format.replace(':', 'x') : '') };
   } finally { proj.style.format = keep; }
 }
 function exportInfo() {
@@ -1261,7 +1385,7 @@ $('#bmGo').onclick = async () => {
       else { const r = await api.transcribe({ audioPath: b.path, from: null, to: null, lang: proj.lang || 'ru', vocals: !!proj.vocals, vocalsQ: proj.vocalsQ }, t => { b.msg = t; renderBatch(); }); const ws = r.words.map(w => ({ w: w.w, t: w.t, e: w.e, e0: w.e0 })); proj.lyrics = wordsToLines(ws); proj.words = ws.map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })); b.lyrics = proj.lyrics; }
       markAdlibs(proj.words); autoTrim(true); autoScenes(); if ($('#bmAcc').checked) autoAccents();
       const name = b.name.replace(/\.[^.]+$/, '');
-      await api.saveProject(JSON.stringify(proj), name + '.lsp', dir + sep + name + '.lsp');
+      await api.saveProject(projJSON(), name + '.lsp', dir + sep + name + '.lsp');
       await ensureSpectrum();
       for (const f of formats) {
         b.msg = `экспорт ${f}…`; renderBatch(); const o = { draft: false, container: 'mp4', res: +$('#bmRes').value, fps: 30 }, job = makeJob(o, f);

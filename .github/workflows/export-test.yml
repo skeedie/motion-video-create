@@ -1,0 +1,61 @@
+name: Проверка экспорта на Windows
+on:
+  push:
+    branches: ['**']
+    paths: ['main.js', 'preload.js', 'app/engine.html', 'app/app.js', '.github/workflows/export-test.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  export:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Кэш зависимостей
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: deps-win-${{ hashFiles('package.json') }}
+      - name: Кэш загрузок Electron
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: dl-win-${{ hashFiles('package.json') }}
+          restore-keys: dl-win-
+      - name: Установка зависимостей
+        if: steps.deps.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set +e
+          for i in 1 2 3 4 5 6; do npm install --no-audit --no-fund && exit 0; echo "попытка $i не удалась, жду 60 с"; sleep 60; done; exit 1
+      - name: Контрольные кадры и ролик
+        shell: bash
+        env:
+          LS_CI_OUT: ${{ github.workspace }}\ci-out
+        run: |
+          npx electron . ; code=$?
+          cat ci-out/report.json || true
+          exit $code
+      - name: Кадры в служебную ветку (чтобы их можно было посмотреть)
+        if: always()
+        shell: bash
+        run: |
+          cd ci-out || exit 0
+          rm -f *.mp4 *.wav
+          git init -q . && git checkout -q -b ci-out
+          git config user.name ci && git config user.email ci@users.noreply.github.com
+          git add -A && git commit -qm "кадры проверки ${{ github.sha }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-out
+      - name: Результат
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: export-check
+          path: ci-out
+          retention-days: 5

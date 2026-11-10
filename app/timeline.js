@@ -66,6 +66,7 @@
       ctx.fillStyle = '#9B6BFF'; ctx.fillRect(Math.round(x0), yWords + 2, 2, ROW.words - 4);
       if (wd.acc) { ctx.fillStyle = wd.acc.color || '#FDE047'; ctx.beginPath(); ctx.arc(x1 - 6, yWords + 6, 3.5, 0, Math.PI * 2); ctx.fill(); }
       if (wd.adlib) { ctx.fillStyle = 'rgba(255,90,95,.8)'; ctx.fillRect(x0, yWords + ROW.words - 5, Math.max(2, x1 - x0 - 1), 2); }
+      if (wd.unsure) { ctx.fillStyle = '#FFB020'; ctx.fillRect(x0, yWords + 1, Math.max(2, x1 - x0 - 1), 2); }
     });
     // курсор
     const x = Math.round(t2x(H.time())) + .5; ctx.strokeStyle = '#FF5A5F'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, HEIGHT); ctx.stroke();

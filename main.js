@@ -8,6 +8,10 @@ const killChildren = () => { for (const p of CHILDREN) { try { p.kill('SIGKILL')
 const { spawn } = cp;
 const A = require('./align');
 
+// вторая копия программы не запускается: она бы затирала автосохранение первой и оставляла ложный «аварийный» флаг
+const projArg = argv => (argv || []).slice(1).find(a => /\.(lsp|lspz)$/i.test(a) && fs.existsSync(a)) || null;
+if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+app.on('second-instance', (e, argv) => { if (!mainWin || mainWin.isDestroyed()) return; if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); const p = projArg(argv); if (p) mainWin.webContents.executeJavaScript(`window.__openPath&&window.__openPath(${JSON.stringify(p)})`).catch(() => {}); });
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 
 const REPO = 'skeedie/motion-video-create';
@@ -19,7 +23,7 @@ const MODEL_DIR = () => UD('giga-ctc');
 const USER_PRESETS = () => UD('user-presets.json');
 let JOB_HTML = '<html></html>', mainWin = null, cancelFlag = false, LANG = 'ru';
 // подписи системных диалогов на английском (остальной интерфейс переводит окно)
-const DLG_EN = { 'Сохранить видео': 'Save video', 'Сохранить обложку': 'Save cover', 'Сохранить кадр': 'Save frame', 'Папка для видео': 'Folder for videos', 'Видео MP4': 'MP4 video', 'MOV с прозрачностью (ProRes 4444)': 'MOV with alpha (ProRes 4444)', 'WebM с прозрачностью (VP9)': 'WebM with alpha (VP9)', 'GIF-анимация': 'GIF animation', 'Видеостикер Telegram (WebM)': 'Telegram video sticker (WebM)', 'Выберите трек': 'Choose a track', 'Выберите треки': 'Choose tracks', 'Аудио': 'Audio', 'Картинки': 'Images', 'Шрифты': 'Fonts', 'Проект Lyric Studio': 'Lyric Studio project', 'Сохранить проект': 'Save project', 'Открыть проект': 'Open project', 'Пресет Lyric Studio': 'Lyric Studio preset', 'Проект с треком': 'Project with track', 'Фото и видео': 'Photos and videos', 'Открыть пресет': 'Open preset', 'Сохранить пресет в файл': 'Save preset to file', 'Сохранить проект вместе с треком': 'Save project with track', 'Треки для пакетной обработки': 'Tracks for batch', 'Фон: фото или видео': 'Background: photo or video', 'Выберите картинку': 'Choose an image', 'Выберите шрифт': 'Choose a font' };
+const DLG_EN = { 'Сохранить тайминги LRC': 'Save LRC timings', 'Сохранить субтитры SRT': 'Save SRT subtitles', 'Тайминги: LRC или SRT': 'Timings: LRC or SRT', 'Сохранить файл': 'Save file', 'Открыть файл': 'Open file', 'Сохранить видео': 'Save video', 'Сохранить обложку': 'Save cover', 'Сохранить кадр': 'Save frame', 'Папка для видео': 'Folder for videos', 'Видео MP4': 'MP4 video', 'MOV с прозрачностью (ProRes 4444)': 'MOV with alpha (ProRes 4444)', 'WebM с прозрачностью (VP9)': 'WebM with alpha (VP9)', 'GIF-анимация': 'GIF animation', 'Видеостикер Telegram (WebM)': 'Telegram video sticker (WebM)', 'Выберите трек': 'Choose a track', 'Выберите треки': 'Choose tracks', 'Аудио': 'Audio', 'Картинки': 'Images', 'Шрифты': 'Fonts', 'Проект Lyric Studio': 'Lyric Studio project', 'Сохранить проект': 'Save project', 'Открыть проект': 'Open project', 'Пресет Lyric Studio': 'Lyric Studio preset', 'Проект с треком': 'Project with track', 'Фото и видео': 'Photos and videos', 'Открыть пресет': 'Open preset', 'Сохранить пресет в файл': 'Save preset to file', 'Сохранить проект вместе с треком': 'Save project with track', 'Треки для пакетной обработки': 'Tracks for batch', 'Фон: фото или видео': 'Background: photo or video', 'Выберите картинку': 'Choose an image', 'Выберите шрифт': 'Choose a font' };
 const tr = s => LANG === 'en' && DLG_EN[s] || s;
 
 // ---------- журнал ----------
@@ -57,6 +61,40 @@ function createWindow() {
   });
 }
 
+// ---------- проверка экспорта в автоматической сборке: LS_CI_OUT=папка ----------
+// Рендерит контрольные кадры и короткий ролик на настоящей Windows, чтобы ошибки экспорта ловились до выпуска.
+async function ciRun(dir) {
+  const { screen } = require('electron'), sleep = ms => new Promise(r => setTimeout(r, ms)), rep = { frames: [], errors: [] };
+  try {
+    fs.mkdirSync(dir, { recursive: true }); const d = screen.getPrimaryDisplay(); rep.display = { size: d.size, workArea: d.workAreaSize, scale: d.scaleFactor };
+    for (let i = 0; i < 300; i++) { if (await mainWin.webContents.executeJavaScript('!!(window.__ls&&window.__ciJob)').catch(() => false)) break; await sleep(100); }
+    const small = {}, thumb = png => nativeImage.createFromBuffer(png).resize({ width: 90, height: 160, quality: 'best' }).toBitmap();
+    for (const [fmt, width, t, alpha] of [['9:16', 720, .9], ['9:16', 1080, .9], ['9:16', 1080, 2.4], ['9:16', 1080, 1.5], ['9:16', 1440, .9], ['9:16', 2160, .9], ['16:9', 1920, .9], ['1:1', 1080, .9], ['9:16', 1080, .9, true]]) {
+      const job = await mainWin.webContents.executeJavaScript(`window.__ciJob(${JSON.stringify(fmt)})`), outW = width, outH = Math.round(width * job.H / job.W / 2) * 2, name = `frame-${fmt.replace(':', 'x')}-${width}-${t}${alpha ? '-alpha' : ''}.png`;
+      try {
+        JOB_HTML = job.html; const png = await grabFrame(job, outW, outH, t, !!alpha), sc = rep.display.scale || 1;
+        fs.writeFileSync(path.join(dir, name), png.data); rep.frames.push({ name, want: [outW, outH], got: png.size, info: png.info });
+        if (Math.abs(png.size[0] / sc - outW) > 2 || Math.abs(png.size[1] / sc - outH) > 2) rep.errors.push(`${name}: кадр ${png.size.join('×')} вместо ${outW}×${outH}`);
+        // один и тот же момент в разном разрешении должен выглядеть одинаково
+        if (fmt === '9:16' && t === .9 && !alpha) { const b = thumb(png.data); if (!small.ref) small.ref = b; else { let d = 0; for (let i = 0; i < b.length; i++) d += Math.abs(b[i] - small.ref[i]); d /= b.length; rep.frames[rep.frames.length - 1].diff720 = +d.toFixed(2); if (d > 6) rep.errors.push(`${name}: картинка отличается от 720p (${d.toFixed(1)})`); } }
+      } catch (e) { rep.errors.push(name + ': ' + (e.stack || e.message)); }
+    }
+    try {
+      const job = await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16')`), wav = path.join(dir, 'silence.wav'), out = path.join(dir, 'export-1080.mp4');
+      await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '4', wav]);
+      const r = await exportVideoImpl({ sender: mainWin.webContents }, { html: job.html, W: job.W, H: job.H, width: 1080, start: 0, end: 3, outDur: 3, cuts: [], fade: .5, fps: 30, container: 'mp4', name: 'ci', loud: true, audioPath: wav, outPath: out });
+      rep.export = r; if (r && r.ok) { await runFF(['-v', 'error', '-y', '-ss', '0.9', '-i', out, '-frames:v', '1', path.join(dir, 'export-1080-0.9.png')]); rep.probe = await runFFOut(['-hide_banner', '-i', out, '-f', 'null', '-']).then(x => (x.match(/Stream #0:0.*/) || [''])[0]);
+        for (const tt of ['1.5', '2.4']) { await runFF(['-v', 'error', '-y', '-ss', tt, '-i', out, '-frames:v', '1', path.join(dir, `export-1080-${tt}.png`)]);
+          const x = thumb(fs.readFileSync(path.join(dir, `export-1080-${tt}.png`))), y = thumb(fs.readFileSync(path.join(dir, `frame-9x16-1080-${tt}.png`))); let d = 0; for (let i = 0; i < x.length; i++) d += Math.abs(x[i] - y[i]); d /= x.length; rep['exportDiff' + tt] = +d.toFixed(2); if (d > 8) rep.errors.push(`кадр ${tt} с ролика отличается от отдельного кадра (${d.toFixed(1)})`); }
+        const b = thumb(fs.readFileSync(path.join(dir, 'export-1080-0.9.png'))); let d = 0; for (let i = 0; i < b.length; i++) d += Math.abs(b[i] - small.ref[i]); d /= b.length; rep.exportDiff = +d.toFixed(2);
+        if (d > 8) rep.errors.push(`кадр готового ролика отличается от контрольного (${d.toFixed(1)})`); if (!/bt709/.test(rep.probe)) rep.errors.push('в ролике нет метки цвета BT.709: ' + rep.probe); }
+      else rep.errors.push('экспорт не удался: ' + JSON.stringify(r));
+    } catch (e) { rep.errors.push('export: ' + (e.stack || e.message)); }
+  } catch (e) { rep.errors.push(e.stack || e.message); }
+  try { fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(rep, null, 1)); } catch (e) {}
+  markClean(); killChildren(); app.exit(rep.errors.length ? 1 : 0);
+}
+
 // флаг «программа работает»: если при следующем запуске он остался — прошлый сеанс завершился аварийно
 const RUN_FLAG = () => UD('running.flag');
 let LAST_CRASH = null;
@@ -76,7 +114,20 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(p).toString());
   });
   createWindow();
+  if (process.env.LS_CI_OUT) ciRun(process.env.LS_CI_OUT);
+  else { const p = projArg(process.argv); if (p) mainWin.webContents.once('did-finish-load', () => setTimeout(() => mainWin.webContents.executeJavaScript(`window.__openPath&&window.__openPath(${JSON.stringify(p)})`).catch(() => {}), 1200)); }
+  setTimeout(cleanDisk, 8000);
 });
+// уборка: распакованные проекты с треком, кэш битов и временные файлы, к которым давно не обращались
+function cleanDisk() {
+  const old = (f, days) => { try { return Date.now() - fs.statSync(f).mtimeMs > days * 864e5; } catch (e) { return false; } }, rm = f => { try { fs.rmSync(f, { recursive: true, force: true }); return 1; } catch (e) { return 0; } };
+  let n = 0;
+  try { for (const d of fs.readdirSync(UD('bundles'))) { const f = UD('bundles', d); if (old(f, 30)) n += rm(f); } } catch (e) {}
+  try { for (const d of fs.readdirSync(UD('beatcache'))) { const f = UD('beatcache', d); if (old(f, 90)) n += rm(f); } } catch (e) {}
+  try { for (const d of fs.readdirSync(os.tmpdir())) { if (/^(lyric-|ls-selftest-|ls-test-)/.test(d) || /^LyricStudio-Setup-.*\.exe(\.part)?$/.test(d)) { const f = path.join(os.tmpdir(), d); if (old(f, 2)) n += rm(f); } } } catch (e) {}
+  for (const d of ['giga-ctc', 'w2v-en', 'uvr', 'models2']) { try { for (const x of fs.readdirSync(UD(d))) if (x.endsWith('.part') && old(UD(d, x), 1)) n += rm(UD(d, x)); } catch (e) {} }
+  if (n) log(`уборка: удалено старых временных файлов и папок — ${n}`);
+}
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { cancelFlag = true; BrowserWindow.getAllWindows().forEach(w => { if (w !== mainWin) try { w.destroy(); } catch (e) {} }); });
 app.on('will-quit', () => { markClean(); killChildren(); setTimeout(() => process.exit(0), 2000).unref(); });
@@ -152,7 +203,7 @@ function readBundle(fp) {
     pos += f.size;
     if (f.key === 'audio') proj.audioPath = out; if (f.key === 'bg' && proj.style && proj.style.bgMedia) proj.style.bgMedia.path = out;
   }
-  fs.closeSync(fd); return JSON.stringify(proj);
+  fs.closeSync(fd); try { const now = new Date(); fs.utimesSync(dir, now, now); } catch (e) {} return JSON.stringify(proj);
 }
 handle('saveBundle', async (ev, json, name) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить проект вместе с треком'), defaultPath: name, filters: [{ name: tr('Проект с треком'), extensions: ['lspz'] }] });
@@ -224,7 +275,7 @@ handle('checkUpdate', async () => {
   const list = await res.json(); let best = null;
   for (const r of list) {
     if (r.draft || r.prerelease) continue;
-    const a = {}; for (const as of r.assets || []) { const m = as.name.match(/^LyricStudio-(Setup|Portable)-(\d+\.\d+\.\d+)\.exe$/); if (m) { a.v = m[2]; a[m[1]] = { url: as.browser_download_url, size: as.size }; } }
+    const a = {}; for (const as of r.assets || []) { const m = as.name.match(/^LyricStudio-(Setup|Portable)-(\d+\.\d+\.\d+)\.exe$/); if (m) { a.v = m[2]; a[m[1]] = { url: as.browser_download_url, size: as.size, sha: /^sha256:[0-9a-f]{64}$/.test(as.digest || '') ? as.digest : null }; } }
     if (a.v && a.Setup && a.Portable && (!best || cmpVer(a.v, best.version) > 0)) best = { version: a.v, setup: a.Setup, portable: a.Portable, page: r.html_url, notes: r.body || '' };
   }
   if (best && cmpVer(best.version, app.getVersion()) > 0) return best;
@@ -235,12 +286,12 @@ handle('installUpdate', async (ev, info) => {
   const portableExe = process.env.PORTABLE_EXECUTABLE_FILE;
   if (portableExe) {
     const dest = path.join(path.dirname(portableExe), `LyricStudio-Portable-${info.version}.exe`);
-    await download(info.portable.url, dest, 'обновление', progress);
+    modelCancel = false; await download(info.portable.url, dest, 'обновление', progress, info.portable.sha || null);
     shell.showItemInFolder(dest);
     return { portable: true, path: dest };
   }
   const dest = path.join(os.tmpdir(), `LyricStudio-Setup-${info.version}.exe`);
-  await download(info.setup.url, dest, 'обновление', progress);
+  modelCancel = false; await download(info.setup.url, dest, 'обновление', progress, info.setup.sha || null);
   log('запускаю установщик', dest);
   try { await Promise.race([mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
   // установщик стартует, когда эта программа уже полностью закрылась
@@ -251,20 +302,36 @@ handle('installUpdate', async (ev, info) => {
 handle('openExternal', async (ev, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; });
 
 // ---------- загрузка файлов ----------
-async function download(url, dest, label, progress) {
+// контрольные суммы файлов моделей (SHA-256): обрыв связи или прокси не подсунут битый файл
+const SHA = {
+  'model-v1/model.int8.onnx': 'd0ce4aef25f58d495781ee8f05320d9e51b821f47804e07aa6549b53a72f67e8', 'model-v1/tokens.txt': '17cc514451bcceac9c280068c71502f8448f99e9fb1456b8d0761651fd0392f2',
+  'model-en-v1/model.int8.onnx': '9d639433b6f76766047eeac3f104c16adfcf188bd2dcbdbe05ea9ca248f2fc36', 'model-en-v1/vocab.json': '19727f8944fe6459fc3f240ae2c198395b740f6a029bd23e06656266b83bcf64',
+  'models-v2/beat_this_small.onnx': 'a5f8d39d989f31859454ba27afe61c5317ca95e4d9373e6853e5361b8937172f', 'models-v2/v3_e2e_ctc.int8.onnx': '2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e',
+  'models-v2/v3_e2e_ctc_vocab.txt': '142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd', 'models-v2/htdemucs_ft_vocals_htdemucs_ft_vocals_fp16weights.onnx': '0cbe651f535415c9d26a7bb614f7d322dd5a080fa0298f2e50f478030a994dce',
+  'models-v2/birefnet_lite.onnx': '5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333', 'models-v2/isnet-general-use.onnx': '60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a'
+};
+// отмена синхронизации, распознавания, отделения вокала и загрузки моделей
+let modelCancel = false;
+const guard = () => { if (modelCancel) throw new Error('__cancel'); };
+handle('cancelModel', () => { modelCancel = true; return true; });
+async function download(url, dest, label, progress, sha) {
+  if (sha === undefined) { const m = url.match(/releases\/download\/(.+)$/); sha = m && SHA[m[1]] || null; }
   const res = await net.fetch(url);
   if (!res.ok) throw new Error(`не удалось скачать ${label}: HTTP ${res.status}`);
-  const total = +res.headers.get('content-length') || 0, part = dest + '.part', out = fs.createWriteStream(part), reader = res.body.getReader();
-  let got = 0, last = -1;
+  const total = +res.headers.get('content-length') || 0, part = dest + '.part', out = fs.createWriteStream(part), reader = res.body.getReader(), hash = require('crypto').createHash('sha256');
+  let got = 0, last = -1, ok = false;
   try {
     for (;;) {
+      if (modelCancel) { try { await reader.cancel(); } catch (e) {} throw new Error('__cancel'); }
       const { done, value } = await reader.read(); if (done) break;
-      got += value.length; if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
+      got += value.length; hash.update(value); if (!out.write(Buffer.from(value))) await new Promise(r => out.once('drain', r));
       const pct = total ? Math.floor(got / total * 100) : Math.floor(got / 1e6);
       if (pct !== last) { last = pct; progress(total ? `Скачиваю ${label}: ${pct}%` : `Скачиваю ${label}: ${pct} МБ`); }
     }
-  } finally { await new Promise(r => out.end(r)); }
-  if (total && got !== total) throw new Error(`загрузка ${label} прервалась, попробуйте ещё раз`);
+    ok = true;
+  } finally { await new Promise(r => out.end(r)); if (!ok) try { fs.unlinkSync(part); } catch (e) {} }
+  if (total && got !== total) { try { fs.unlinkSync(part); } catch (e) {} throw new Error(`загрузка ${label} прервалась, попробуйте ещё раз`); }
+  if (sha && hash.digest('hex') !== String(sha).replace(/^sha256:/, '')) { try { fs.unlinkSync(part); } catch (e) {} throw new Error(`файл «${label}» скачался с ошибкой (не сошлась контрольная сумма) — попробуйте ещё раз`); }
   try { fs.unlinkSync(dest); } catch (e) {}
   fs.renameSync(part, dest);
 }
@@ -285,7 +352,14 @@ const SESS = {};
 async function getSession(file, opts = {}) {
   if (SESS[file]) return SESS[file];
   const ort = require('onnxruntime-node');
-  SESS[file] = { ort, s: await ort.InferenceSession.create(file, Object.assign({ executionProviders: ['cpu'] }, opts)) };
+  let sess;
+  try { sess = await ort.InferenceSession.create(file, Object.assign({ executionProviders: ['cpu'] }, opts)); }
+  catch (e) {
+    // файл модели не читается (обычно — повреждён на диске): удаляем, при следующем запуске он скачается заново
+    if (/protobuf|parse|invalid|corrupt|load model|No such file|not a valid/i.test(String(e && e.message))) { log('модель не читается, удаляю:', file, e.message); try { fs.unlinkSync(file); } catch (x) {} throw new Error('файл нейросети был повреждён и удалён — запустите ещё раз, он скачается заново'); }
+    throw e;
+  }
+  SESS[file] = { ort, s: sess };
   return SESS[file];
 }
 async function dropSession(file) { const x = SESS[file]; delete SESS[file]; if (x) try { await x.s.release(); } catch (e) {} }
@@ -333,7 +407,7 @@ async function vocalsFile(audioPath, from, to, progress, quality) {
   progress('Читаю трек для отделения вокала…');
   const a = from != null ? Math.max(0, +from) : null, st = await SEP.loadStereo44(FFMPEG, audioPath, a, to != null ? +to : null);
   const t0 = Date.now();
-  const tick = q => { const el = (Date.now() - t0) / 1000, left = q > 0.02 ? el / q * (1 - q) : 0; progress(`Отделяю вокал от бита${best ? ' (качественно)' : ''}: ${Math.round(q * 100)}%${left ? ' · осталось ~' + (left > 90 ? Math.ceil(left / 60) + ' мин' : Math.ceil(left) + ' с') : ''}`); };
+  const tick = q => { guard(); const el = (Date.now() - t0) / 1000, left = q > 0.02 ? el / q * (1 - q) : 0; progress(`Отделяю вокал от бита${best ? ' (качественно)' : ''}: ${Math.round(q * 100)}%${left ? ' · осталось ~' + (left > 90 ? Math.ceil(left / 60) + ' мин' : Math.ceil(left) + ' с') : ''}`); };
   let v;
   try {
     v = best ? await N.demucsVocals(st, async buf => (await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', buf, [1, 2, N.DM.N]) }))[s.outputNames[0]].data, tick)
@@ -344,25 +418,25 @@ async function vocalsFile(audioPath, from, to, progress, quality) {
 }
 // синхронизация готового текста (align) и распознавание текста с трека (transcribe) идут одним путём
 async function runModel(ev, args, what) {
-  const progress = t => send(ev, 'progress:align', t), en = args.lang === 'en';
+  modelCancel = false; const progress = t => { guard(); send(ev, 'progress:align', t); }, en = args.lang === 'en';
   let audioPath = args.audioPath, from = args.from, to = args.to, offset = null, tmp = null;
   if (args.vocals) { const r = await vocalsFile(args.audioPath, args.from, args.to, progress, args.vocalsQ); tmp = audioPath = r.file; offset = r.offset; from = null; to = null; }
   const fn = what === 'transcribe' ? A.transcribe : A.align;
   try {
     if (en) {
       const dir = await ensureEn(progress), { ort, s } = await getSession(path.join(dir, 'model.int8.onnx'));
-      const runRaw = async x => { const out = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', x, [1, x.length]) }); const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] }; };
+      const runRaw = async x => { guard(); const out = await s.run({ [s.inputNames[0]]: new ort.Tensor('float32', x, [1, x.length]) }); const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] }; };
       return await fn({ ffmpeg: FFMPEG, modelDir: dir, audioPath, lyrics: args.lyrics, from, to, offset, lang: 'en', runRaw, progress });
     }
     if (what === 'transcribe') {
       // распознавание русского — GigaAM v3: текст сразу с пунктуацией и заглавными
       const [voc, onnx] = await ensureM2('ru3', progress), { ort, s } = await getSession(onnx);
-      const run3 = async (feats, T) => { const out = await s.run({ features: new ort.Tensor('float32', feats, [1, 64, T]), feature_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(T)]), [1]) }); const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] }; };
+      const run3 = async (feats, T) => { guard(); const out = await s.run({ features: new ort.Tensor('float32', feats, [1, 64, T]), feature_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(T)]), [1]) }); const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] }; };
       return await A.transcribeV3({ ffmpeg: FFMPEG, vocab: fs.readFileSync(voc, 'utf8'), audioPath, from, to, offset, runChunk: run3, progress });
     }
     const dir = await ensureModel(progress), { ort, s } = await getSession(path.join(dir, 'model.int8.onnx'));
     const runChunk = async (feats, T) => {
-      const out = await s.run({ features: new ort.Tensor('float32', feats, [1, 64, T]), feature_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(T)]), [1]) });
+      guard(); const out = await s.run({ features: new ort.Tensor('float32', feats, [1, 64, T]), feature_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(T)]), [1]) });
       const t = out[s.outputNames[0]]; return { data: t.data, T2: t.dims[1], V: t.dims[2] };
     };
     return await fn({ ffmpeg: FFMPEG, modelDir: dir, audioPath, lyrics: args.lyrics, from, to, offset, runChunk, progress });
@@ -392,14 +466,17 @@ function segCodec(job, outW, outH) {
   if (job.container === 'gif') return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '12', '-pix_fmt', 'yuv420p'];
   return ['-c:v', 'libx264', '-preset', job.draft ? 'ultrafast' : outH * outW > 2.2e6 ? 'faster' : 'veryfast', '-crf', job.draft ? '28' : '18', '-pix_fmt', 'yuv420p'];
 }
+// Цвет. Кадры приходят как JPEG (матрица BT.601) или RGB; HD-видео по стандарту — BT.709. Без пересчёта и меток
+// плеер или площадка, которые не читают метку файла, показывали цвета со сдвигом (зелёный темнел, красный уходил в оранжевый).
+const COLOR_TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
 function segArgs(job, inW, inH, outW, outH, out) {
   const alpha = job.container === 'mov' || job.container === 'webm' || job.container === 'sticker', fps = String(job.fps);
   const input = alpha ? ['-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', `${inW}x${inH}`, '-framerate', fps, '-i', '-'] : ['-f', 'image2pipe', '-framerate', fps, '-c:v', 'mjpeg', '-i', '-'];
-  return ['-v', 'error', '-y', ...input, '-vf', `scale=${outW}:${outH}:flags=${job.draft ? 'bilinear' : 'lanczos'}`, ...segCodec(job, outW, outH), '-r', fps, out];
+  return ['-v', 'error', '-y', ...input, '-vf', `scale=${outW}:${outH}:flags=${job.draft ? 'bilinear' : 'lanczos'}:${alpha ? '' : 'in_color_matrix=bt601:'}out_color_matrix=bt709,setsar=1`, ...segCodec(job, outW, outH), ...COLOR_TAGS, '-r', fps, out];
 }
 // звук ролика: куски трека без вырезанных проигрышей (склейка с микро-затуханием, без щелчков) → затухание на входе/выходе → звуковые эффекты
 const CURVE = { smooth: 'qsin', linear: 'tri', fast: 'exp', soft: 'log' };
-function audioGraph(job, dur) {
+function audioGraph(job, dur, tail) {
   const segs = [], cuts = (job.cuts || []).filter(c => c.b > job.start && c.a < job.end).sort((x, y) => x.a - y.a); let pos = job.start;
   for (const c of cuts) { if (c.a > pos) segs.push([pos, c.a]); pos = Math.max(pos, c.b); } if (job.end > pos) segs.push([pos, job.end]);
   const f = [], cv = CURVE[job.fadeCurve] || 'qsin';
@@ -408,8 +485,10 @@ function audioGraph(job, dur) {
   const fi = Math.min(+job.fadeIn || 0, dur / 3), fo = Math.min(job.fadeOut != null ? +job.fadeOut : (job.fade || 0.4), dur / 3), fx = [];
   if (fi > 0) fx.push(`afade=t=in:st=0:d=${fi.toFixed(3)}:curve=${cv}`); if (fo > 0) fx.push(`afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}:curve=${cv}`);
   f.push(`[cat]${fx.length ? fx.join(',') : 'anull'}[m]`);
-  if (job.sfxPath) f.push(`[2:a]volume=${(+job.sfxVol || .7).toFixed(2)}${fo > 0 ? `,afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}` : ''}[s]`, `[m][s]amix=inputs=2:duration=first:normalize=0[a]`);
-  else f.push('[m]anull[a]');
+  // выравнивание громкости: общий сдвиг до −14 LUFS (без «дыхания» компрессора) и ограничитель пиков на случай тихого трека
+  const gain = typeof job.gainDb === 'number' && Math.abs(job.gainDb) > 0.05 ? `volume=${job.gainDb.toFixed(2)}dB,alimiter=limit=0.84:level=false` : 'anull', last = tail || 'a';
+  if (job.sfxPath) f.push(`[2:a]volume=${(+job.sfxVol || .7).toFixed(2)}${fo > 0 ? `,afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}` : ''}[s]`, `[m][s]amix=inputs=2:duration=first:normalize=0[mx]`, `[mx]${gain}[${last}]`);
+  else f.push(`[m]${gain}[${last}]`);
   return f.join(';');
 }
 function finalArgs(job, list, out, outW) {
@@ -420,16 +499,46 @@ function finalArgs(job, list, out, outW) {
   const a = job.container === 'webm' ? ['-c:a', 'libopus', '-b:a', '160k'] : ['-c:a', 'aac', '-b:a', job.draft ? '128k' : job.container === 'mov' ? '256k' : '192k'];
   return ['-v', 'error', '-y', ...vin, '-i', job.audioPath, ...(job.sfxPath ? ['-i', job.sfxPath] : []), '-filter_complex', audioGraph(job, dur), '-map', '0:v', '-map', '[a]', ...v, ...a, '-t', dur.toFixed(3), ...(job.container === 'mp4' ? ['-movflags', '+faststart'] : []), out];
 }
+// измерить громкость готовой звуковой дорожки ролика (LUFS) — первый проход для выравнивания
+async function measureLoudness(job, dur) {
+  const args = ['-hide_banner', '-nostats', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-i', job.audioPath, ...(job.sfxPath ? ['-i', job.sfxPath] : []), '-filter_complex', audioGraph(Object.assign({}, job, { gainDb: null }), dur, 'pre') + ';[pre]loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json[o]', '-map', '[o]', '-t', dur.toFixed(3), '-f', 'null', '-'];
+  const txt = await runFFOut(args), m = txt.match(/"input_i"\s*:\s*"(-?[\d.]+|-inf)"/); if (!m || m[1] === '-inf') return null; return +m[1];
+}
 const runFF = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let e = ''; p.stderr.on('data', d => e += d); p.on('error', rej); p.on('close', c => c === 0 ? res() : rej(new Error('ffmpeg: ' + e.slice(0, 500)))); });
+// Окно рендера. resizable:false обязателен: окну с рамкой изменения размера Windows не даёт стать больше экрана,
+// и ролик 1080×1920 на мониторе 1080p выходил обрезанным и растянутым.
 async function openEngine(outW, outH, zoom, alpha) {
-  const win = new BrowserWindow({ show: false, width: outW, height: outH, useContentSize: true, frame: false, transparent: alpha, backgroundColor: alpha ? '#00000000' : '#000000',
-    webPreferences: { offscreen: true, backgroundThrottling: false, zoomFactor: zoom } });
-  win.webContents.setFrameRate(60);
-  await win.loadURL('app://job/engine.html'); win.webContents.setZoomFactor(zoom);
+  const mk = (w, h, z) => { const x = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, frame: false, resizable: false, transparent: alpha, backgroundColor: alpha ? '#00000000' : '#000000',
+    webPreferences: { offscreen: true, backgroundThrottling: false, zoomFactor: z } });
+    // при создании Windows всё равно подгоняет окно под экран; повторная установка размера у окна без рамки уже не ограничивается
+    try { x.setContentSize(w, h); } catch (e) {} x.__zoom = z; return x; };
+  let win = mk(outW, outH, zoom), [cw, ch] = win.getContentSize();
+  if (Math.abs(cw - outW) > 1 || Math.abs(ch - outH) > 1) {
+    // система всё же урезала окно: берём окно поменьше с тем же макетом — кадр выйдет мягче, но не искажённым
+    const k = Math.min(cw / outW, ch / outH), w = Math.max(2, Math.floor(outW * k / 2) * 2), h = Math.max(2, Math.round(w * outH / outW));
+    log(`окно рендера ${outW}x${outH} урезано системой до ${cw}x${ch} — рендерю в ${w}x${h} и увеличиваю`); win.destroy(); win = mk(w, h, zoom * w / outW);
+  }
+  win.webContents.setFrameRate(120);
+  await win.loadURL('app://job/engine.html'); win.webContents.setZoomFactor(win.__zoom);
   for (let i = 0; i < 300; i++) { if (await win.webContents.executeJavaScript('window.READY===true||!!window.__err')) break; await new Promise(r => setTimeout(r, 100)); }
   await win.webContents.executeJavaScript('document.fonts.ready.then(()=>1)');
   const err = await win.webContents.executeJavaScript('window.__err||""'); if (err) { win.destroy(); throw new Error('движок: ' + err); }
+  // макет должен совпасть с форматом ролика; если нет — лучше остановиться, чем сохранить перекошенное видео
+  const [iw, ih] = await win.webContents.executeJavaScript('[innerWidth,innerHeight]'), want = outW / outH, got = iw / Math.max(1, ih);
+  if (Math.abs(got / want - 1) > 0.02) { win.destroy(); throw new Error(`окно рендера получило размер ${iw}×${ih} вместо формата ${outW}×${outH} — нажмите «?» → «Скопировать отчёт» и пришлите его`); }
   return win;
+}
+// Снимок кадра только после того, как окно его действительно перерисовало. Раньше снимок брался сразу, и в больших
+// размерах (1080p и выше) перерисовка не успевала: в ролик попадал предыдущий кадр — анимации дёргались и «отставали».
+// Первая перерисовка после перемотки может быть ещё старой (уже стояла в очереди), поэтому ждём две.
+function waitPaint(wc, ms) { return new Promise(res => { let done = false; const fin = () => { if (done) return; done = true; clearTimeout(tm); wc.removeListener('paint', fin); res(); }, tm = setTimeout(fin, ms); wc.on('paint', fin); wc.invalidate(); }); }
+async function freshCapture(win) { const wc = win.webContents; await waitPaint(wc, 2500); await waitPaint(wc, 1000); return wc.capturePage(); }
+// Одиночный кадр (обложка, PNG, проверка) — через отладчик страницы: он всегда рисует кадр заново
+async function cdpCapture(win, alpha) {
+  const dbg = win.webContents.debugger; if (!dbg.isAttached()) dbg.attach('1.3');
+  if (alpha) await dbg.sendCommand('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
+  const r = await dbg.sendCommand('Page.captureScreenshot', { format: 'png', fromSurface: true });
+  return nativeImage.createFromBuffer(Buffer.from(r.data, 'base64'));
 }
 const frameAt = (win, t) => win.webContents.executeJavaScript(`(window.seekAsync||((t)=>Promise.resolve(seek(t))))(${t.toFixed(5)}).then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))`);
 async function renderSegment(job, k0, k1, file, dims, onFrame) {
@@ -438,8 +547,8 @@ async function renderSegment(job, k0, k1, file, dims, onFrame) {
   try {
     for (let i = k0; i < k1; i++) {
       if (cancelFlag) throw new Error('__cancel');
-      await frameAt(win, (job.vStart ?? job.start) + i / job.fps); win.webContents.invalidate();
-      const img = await win.webContents.capturePage();
+      await frameAt(win, (job.vStart ?? job.start) + i / job.fps);
+      const img = await freshCapture(win);
       if (!ff) {
         const sz = img.getSize(); if (!sz.width || !sz.height) throw new Error('пустой кадр при захвате окна');
         ff = spawn(FFMPEG, segArgs(job, sz.width, sz.height, outW, outH, file), { windowsHide: true }); ff.stderr.on('data', d => ffErr += d); ff.stdin.on('error', () => {});
@@ -467,7 +576,7 @@ function decodeMean22k(file) {
 }
 const BEAT_CACHE = () => UD('beatcache');
 handle('netBeats', async (ev, a) => {
-  const st = fs.statSync(a.audioPath), key = require('crypto').createHash('md5').update(a.audioPath + '|' + st.size + '|' + st.mtimeMs).digest('hex'), cf = path.join(BEAT_CACHE(), key + '.json');
+  modelCancel = false; const st = fs.statSync(a.audioPath), key = require('crypto').createHash('md5').update(a.audioPath + '|' + st.size + '|' + st.mtimeMs).digest('hex'), cf = path.join(BEAT_CACHE(), key + '.json');
   try { const c = JSON.parse(fs.readFileSync(cf, 'utf8')); return { beat: Float32Array.from(c.beat), down: Float32Array.from(c.down), fps: c.fps }; } catch (e) {}
   const [file] = await ensureM2('beat'), { ort, s } = await getSession(file);
   const t0 = Date.now(), x = await decodeMean22k(a.audioPath), F = await N.beatFeaturesAsync(x);
@@ -479,7 +588,7 @@ handle('netBeats', async (ev, a) => {
 
 // ---------- вырезать фон с картинки ----------
 handle('removeBg', async (ev, a) => {
-  const progress = t => send(ev, 'progress:bg', t);
+  modelCancel = false; const progress = t => { guard(); send(ev, 'progress:bg', t); };
   let img = nativeImage.createFromDataURL(a.dataUrl); if (img.isEmpty()) throw new Error('не удалось открыть картинку');
   let { width: w, height: h } = img.getSize(); const k = Math.min(1, 1600 / Math.max(w, h));
   if (k < 1) { img = img.resize({ width: Math.round(w * k), height: Math.round(h * k), quality: 'best' }); ({ width: w, height: h } = img.getSize()); }
@@ -493,6 +602,35 @@ handle('removeBg', async (ev, a) => {
     return { dataUrl: nativeImage.createFromBitmap(out, { width: w, height: h }).toDataURL(), model: kind };
   } finally { await dropSession(file); }
 });
+
+// ---------- управление моделями ----------
+const MODELS = () => [
+  { key: 'ru', name: 'Синхронизация: русский (GigaAM CTC)', files: [path.join(MODEL_DIR(), 'model.int8.onnx'), path.join(MODEL_DIR(), 'tokens.txt')], mb: 230, get: p => ensureModel(p) },
+  { key: 'en', name: 'Синхронизация и распознавание: английский (wav2vec 2.0)', files: [UD('w2v-en', 'model.int8.onnx'), UD('w2v-en', 'vocab.json')], mb: 120, get: p => ensureEn(p) },
+  { key: 'ru3', name: 'Распознавание текста: русский (GigaAM v3)', files: M2.ru3.files.map(f => path.join(M2_DIR(), f)), mb: 225, get: p => ensureM2('ru3', p) },
+  { key: 'beat', name: 'Биты и сильные доли (Beat This!)', files: M2.beat.files.map(f => path.join(M2_DIR(), f)), mb: 10, get: p => ensureM2('beat', p) },
+  { key: 'mdx', name: 'Отделение вокала: быстро (Kim Vocal 2)', files: [UD('uvr', SEP.MDX.file)], mb: 65, get: p => ensureMdx(p) },
+  { key: 'demucs', name: 'Отделение вокала: качественно (HT-Demucs)', files: M2.demucs.files.map(f => path.join(M2_DIR(), f)), mb: 166, get: p => ensureM2('demucs', p) },
+  { key: bgKind(), name: 'Вырезание фона (' + (bgKind() === 'birefnet' ? 'BiRefNet' : 'IS-Net') + ')', files: M2[bgKind()].files.map(f => path.join(M2_DIR(), f)), mb: bgKind() === 'birefnet' ? 225 : 180, get: p => ensureM2(bgKind(), p) }
+];
+handle('modelsInfo', async () => MODELS().map(m => { let size = 0, have = true; for (const f of m.files) { try { size += fs.statSync(f).size; } catch (e) { have = false; } } return { key: m.key, name: m.name, have, size, mb: m.mb }; }));
+handle('modelDelete', async (ev, key) => { const m = MODELS().find(x => x.key === key); if (!m) return false; for (const f of m.files) { await dropSession(f); try { fs.unlinkSync(f); } catch (e) {} } return true; });
+handle('modelGet', async (ev, key) => { const m = MODELS().find(x => x.key === key); if (!m) return false; modelCancel = false; await m.get(t => { guard(); send(ev, 'progress:models', t); }); return true; });
+// ---------- текстовые файлы: тайминги LRC / SRT ----------
+handle('saveText', async (ev, text, name, ext, title) => {
+  const r = await dialog.showSaveDialog(mainWin, { title: tr(title || 'Сохранить файл'), defaultPath: name + '.' + ext, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
+  if (r.canceled || !r.filePath) return null; fs.writeFileSync(r.filePath, text, 'utf8'); return r.filePath;
+});
+handle('openText', async (ev, exts, title) => {
+  const r = await dialog.showOpenDialog(mainWin, { title: tr(title || 'Открыть файл'), properties: ['openFile'], filters: [{ name: exts.map(x => x.toUpperCase()).join(' / '), extensions: exts }] });
+  if (r.canceled || !r.filePaths[0]) return null; const b = fs.readFileSync(r.filePaths[0]);
+  return { name: path.basename(r.filePaths[0]), text: b[0] === 0xFF && b[1] === 0xFE ? b.toString('utf16le') : b.toString('utf8').replace(/^\uFEFF/, '') };
+});
+// что за файл бросили в окно: трек, проект, пресет, картинка или видео
+handle('fileKind', async (ev, p) => { const ext = path.extname(p).slice(1).toLowerCase(); if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) return null;
+  const kind = ['lsp', 'lspz'].includes(ext) ? 'project' : ext === 'lspreset' ? 'preset' : ['lrc', 'srt'].includes(ext) ? 'timing' : ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(ext) ? 'audio' : MEDIA_EXT[ext] ? (MEDIA_EXT[ext].startsWith('video') ? 'video' : 'image') : ['bmp'].includes(ext) ? 'image' : null;
+  if (!kind) return null; const o = { kind, path: p, name: path.basename(p), ext };
+  if (kind === 'image') o.data = toAB(fs.readFileSync(p)); if (kind === 'preset' || kind === 'timing') o.text = fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''); return o; });
 
 // ---------- проверка системы ----------
 const runFFOut = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let o = '', e = ''; p.stdout.on('data', d => o += d); p.stderr.on('data', d => e += d); p.on('error', rej); p.on('close', c => c === 0 ? res(o + e) : rej(new Error(e.slice(0, 300)))); });
@@ -547,6 +685,9 @@ async function exportVideoImpl(ev, job) {
   const cores = os.cpus().length, maxW = outW * outH > 2.2e6 ? 2 : 4, workers = Math.max(1, Math.min(maxW, Math.floor(cores / 3), Math.ceil(n / 60), job.workers || 99));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyric-')), t0 = Date.now(); let doneFrames = 0;
   if (job.gpu && ext === 'mp4') { const g = await detectGpu(); if (g) job.gpuEnc = g.enc; }
+  // свободное место: видео с прозрачностью (ProRes 4444) занимает во временной папке гигабайты
+  { const durS = n / fps, mbps = (cont === 'mov' || cont === 'webm' || cont === 'sticker') ? 30 * outW * outH / 2.07e6 * fps / 30 : 3 * outW * outH / 2.07e6, need = durS * mbps * 2 ** 20 * (cont === 'mov' ? 2.2 : 1.4) + 200 * 2 ** 20;
+    for (const d of [...new Set([os.tmpdir(), path.dirname(out)])]) { let free = null; try { const st = fs.statfsSync(d); free = st.bavail * st.bsize; } catch (e) {} if (free != null && free < need) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} throw new Error(`не хватает места на диске (${d}): нужно примерно ${(need / 2 ** 30).toFixed(1)} ГБ, свободно ${(free / 2 ** 30).toFixed(1)} ГБ. Освободите место или выберите качество ниже`); } } }
   if (job.sfx && job.sfx.data && cont !== 'gif' && cont !== 'sticker') { job.sfxPath = path.join(tmp, 'sfx.wav'); fs.writeFileSync(job.sfxPath, Buffer.from(job.sfx.data)); job.sfxVol = job.sfx.vol; }
   log(`экспорт: ${outW}x${outH} ${fps}fps ${ext}${job.draft ? ' черновик' : ''}, окон: ${workers}${job.gpuEnc ? ', ' + job.gpuEnc : ''}${job.sfxPath ? ', звуки' : ''} → ${out}`);
   JOB_HTML = job.html;
@@ -557,6 +698,7 @@ async function exportVideoImpl(ev, job) {
     for (let w = 0; w < workers; w++) { const k0 = w * per, k1 = Math.min(n, k0 + per); if (k1 <= k0) break; const f = path.join(tmp, `seg${w}.${SEG[cont]}`); segs.push(f); jobs.push(renderSegment(job, k0, k1, f, { outW, outH, zoom }, tick)); }
     const res = await Promise.allSettled(jobs); const bad = res.find(r => r.status === 'rejected'); if (bad) { cancelFlag = true; throw bad.reason; }
     progress(0.97, cont === 'gif' ? 'Собираю GIF…' : cont === 'sticker' ? 'Кодирую стикер…' : ext === 'webm' ? 'Кодирую WebM со звуком…' : 'Склеиваю видео со звуком…');
+    if (job.loud && cont !== 'gif' && cont !== 'sticker') { try { const dur = job.outDur || (job.end - job.start), lufs = await measureLoudness(job, dur); if (lufs != null) { job.gainDb = Math.max(-14, Math.min(12, -14 - lufs)); log(`громкость ролика ${lufs.toFixed(1)} LUFS → сдвиг ${job.gainDb.toFixed(1)} дБ`); } } catch (e) { log('громкость не измерена:', e.message); } }
     const list = path.join(tmp, 'list.txt'); fs.writeFileSync(list, segs.map(f => `file '${f.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
     await runFF(finalArgs(Object.assign({}, job, { fps }), list, out, outW));
     if (cont === 'sticker') for (const crf of [44, 52]) { if (fs.statSync(out).size <= 256 * 1024) break; progress(0.98, 'Ужимаю стикер до 256 КБ…'); await runFF(finalArgs(Object.assign({}, job, { fps, crf }), list, out, outW)); }
@@ -574,12 +716,19 @@ handle('exportVideo', async (ev, job) => {
   if (r && r.retry) { send(ev, 'progress:export', { frac: 0, text: 'Видеокарта не справилась — повторяю на процессоре…' }); return await exportVideoImpl(ev, Object.assign({}, job, { gpu: false, gpuEnc: undefined, outPath: r.out })); }
   return r;
 });
+// один кадр в PNG — общий путь для обложек, кадров и проверки экспорта
+async function grabFrame(job, outW, outH, t, alpha) {
+  const win = await openEngine(outW, outH, outW / job.W, alpha);
+  try {
+    await frameAt(win, t); let img; try { img = await cdpCapture(win, alpha); if (img.isEmpty()) throw new Error('пустой снимок'); } catch (e) { log('снимок через отладчик не вышел:', e.message); img = await freshCapture(win); } const size = img.getSize();
+    const info = await win.webContents.executeJavaScript('[innerWidth,innerHeight,devicePixelRatio]').catch(() => null);
+    return { data: (size.width === outW && size.height === outH ? img : img.resize({ width: outW, height: outH })).toPNG(), size: [size.width, size.height], info: { inner: info, content: win.getContentSize() } };
+  } finally { win.destroy(); }
+}
 // кадр в PNG без диалога — для вариантов обложки
 handle('renderFrame', async (ev, job) => {
   const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
-  const win = await openEngine(outW, outH, outW / job.W, false);
-  try { await frameAt(win, job.t); win.webContents.invalidate(); await new Promise(r => setTimeout(r, 150)); const img = await win.webContents.capturePage(); return 'data:image/png;base64,' + img.resize({ width: outW, height: outH }).toPNG().toString('base64'); }
-  finally { win.destroy(); }
+  return 'data:image/png;base64,' + (await grabFrame(job, outW, outH, job.t, false)).data.toString('base64');
 });
 handle('saveImage', async (ev, dataUrl, name) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить обложку'), defaultPath: name + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
@@ -590,9 +739,7 @@ handle('exportFrame', async (ev, job) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr(job.title || 'Сохранить кадр'), defaultPath: (job.name || 'кадр') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
   if (r.canceled || !r.filePath) return { ok: false };
   const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
-  const win = await openEngine(outW, outH, outW / job.W, !!job.transparent);
-  try { await frameAt(win, job.t); win.webContents.invalidate(); await new Promise(r => setTimeout(r, 120)); const img = await win.webContents.capturePage(); fs.writeFileSync(r.filePath, img.resize({ width: outW, height: outH }).toPNG()); return { ok: true, path: r.filePath }; }
-  finally { win.destroy(); }
+  fs.writeFileSync(r.filePath, (await grabFrame(job, outW, outH, job.t, !!job.transparent)).data); return { ok: true, path: r.filePath };
 });
 handle('captureRect', async (ev, r) => {
   const img = await mainWin.webContents.capturePage({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });

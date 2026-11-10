@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const withProgress = (ch, fn) => async (arg, onProgress) => {
   const h = (e, d) => onProgress && onProgress(d);
   ipcRenderer.on(ch, h);
@@ -52,5 +52,14 @@ contextBridge.exposeInMainWorld('api', {
   selfTest: () => inv('selfTest'),
   selfTestExport: withProgress('progress:export', j => inv('selfTestExport', j)),
   lastCrash: () => inv('lastCrash'),
-  setLang: l => inv('setLang', l)
+  setLang: l => inv('setLang', l),
+  cancelModel: () => inv('cancelModel'),
+  modelsInfo: () => inv('modelsInfo'),
+  modelDelete: k => inv('modelDelete', k),
+  modelGet: withProgress('progress:models', k => inv('modelGet', k)),
+  saveText: (text, name, ext, title) => inv('saveText', text, name, ext, title),
+  openText: (exts, title) => inv('openText', exts, title),
+  fileKind: p => inv('fileKind', p),
+  // путь файла, брошенного в окно мышкой
+  pathOf: f => { try { return webUtils.getPathForFile(f); } catch (e) { return ''; } }
 });

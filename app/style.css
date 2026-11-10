@@ -175,3 +175,17 @@ h4.sub{margin:22px 0 6px;font-size:13px;border-top:1px solid var(--line);padding
 #stRes .sr span{color:var(--mut);font-size:12px}
 #stRes .sr.ok i{color:var(--acc2)}#stRes .sr.warn i{color:#F5B83D}#stRes .sr.err i{color:var(--red)}#stRes .sr.info i{color:#7aa7ff}
 #stRes .sr.err span{color:var(--red)}
+.accRow{margin-top:6px}.accRow select,.accRow input{font-size:12px}.accRow .del{width:28px;padding:6px 0}
+
+/* 0.6.1: поле темпа не сжимается (цифры были не видны), кнопки — второй строкой */
+#bpmRow{flex-wrap:wrap}#bpmRow .brk{flex-basis:100%;height:0}#bpmIn{flex:none;width:74px}#bpmMode{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* окно любой высоты: середина не растёт выше окна, таймлайн и лента сцен всегда на экране */
+main{grid-template-rows:minmax(0,1fr)}#center{min-height:0;overflow:hidden}#stageWrap{min-height:120px}
+#transport{flex-wrap:nowrap}#transport #scrub{min-width:80px}#transport .chk,#transport #dragHint,#tlBar>*{white-space:nowrap}
+@media (max-width:1380px){#dragHint,#tlHint{display:none}}
+@media (max-height:800px){#stageWrap{padding:8px}#transport{padding:4px 18px}}
+#xCont{row-gap:6px}
+#wordList .w.unsure>span:first-child{color:#FFB020}#wordList .uq{display:inline-block;margin-left:6px;width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;background:#FFB020;color:#111;font-size:11px;cursor:pointer}.unsureHint{margin-bottom:8px}
+#dropOv{position:fixed;inset:0;z-index:200;background:rgba(14,15,18,.82);display:flex;align-items:center;justify-content:center;pointer-events:none}
+#dropOv[hidden]{display:none}#dropOv>div{border:2px dashed var(--acc);border-radius:18px;padding:34px 46px;display:flex;flex-direction:column;gap:8px;align-items:center;font-size:20px}#dropOv span{font-size:13px;color:var(--mut)}
+#mdList .md{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #20242c}#mdList .md>div{flex:1;min-width:0}#mdList .md button{flex:none}

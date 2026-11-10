@@ -52,6 +52,14 @@ if (!window.api) {
     async selfTest() { return [{ group: 'Компьютер', name: 'Система', level: 'ok', text: 'браузер (dev)' }, { group: 'Видео', name: 'Кодирование видеокартой', level: 'warn', text: 'не найдено — видео кодирует процессор' }, { group: 'Синхронизация', name: 'Модель для английского', level: 'info', text: 'скачается при первой синхронизации' }]; },
     async selfTestExport(job, onProgress) { window.__stJob = job; onProgress && onProgress({ frac: .5, text: 'Кадр 45 из 90 · осталось ~2 с' }); return { ok: true, seconds: 2.1, size: 123456, duration: 3, audio: true, viaCpu: false, gpu: null }; },
     async lastCrash() { return window.__fakeCrash || null; },
-    async setLang(l) { window.__lang = l; return true; }
+    async setLang(l) { window.__lang = l; return true; },
+    async cancelModel() { window.__cancelled = (window.__cancelled || 0) + 1; return true; },
+    async modelsInfo() { return window.__models || [{ key: 'ru', name: 'Синхронизация: русский (GigaAM CTC)', have: true, size: 236e6, mb: 230 }, { key: 'beat', name: 'Биты и сильные доли (Beat This!)', have: false, size: 0, mb: 10 }]; },
+    async modelDelete(k) { window.__mdDel = k; return true; },
+    async modelGet(k, onProgress) { onProgress && onProgress('Скачиваю: 50%'); window.__mdGet = k; return true; },
+    async saveText(text, name, ext) { window.__savedText = { text, name, ext }; return name + '.' + ext; },
+    async openText() { return window.__openText || null; },
+    async fileKind(p) { return window.__fileKind ? window.__fileKind(p) : null; },
+    pathOf(f) { return f && f.__path || ''; }
   };
 }
