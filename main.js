@@ -470,7 +470,7 @@ const COLOR_TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color
 function segArgs(job, inW, inH, outW, outH, out) {
   const alpha = job.container === 'mov' || job.container === 'webm' || job.container === 'sticker', fps = String(job.fps);
   const input = alpha ? ['-f', 'rawvideo', '-pix_fmt', 'bgra', '-s', `${inW}x${inH}`, '-framerate', fps, '-i', '-'] : ['-f', 'image2pipe', '-framerate', fps, '-c:v', 'mjpeg', '-i', '-'];
-  return ['-v', 'error', '-y', ...input, '-vf', `scale=${outW}:${outH}:flags=${job.draft ? 'bilinear' : 'lanczos'}:${alpha ? '' : 'in_color_matrix=bt601:'}out_color_matrix=bt709`, ...segCodec(job, outW, outH), ...COLOR_TAGS, '-r', fps, out];
+  return ['-v', 'error', '-y', ...input, '-vf', `scale=${outW}:${outH}:flags=${job.draft ? 'bilinear' : 'lanczos'}:${alpha ? '' : 'in_color_matrix=bt601:'}out_color_matrix=bt709,setsar=1`, ...segCodec(job, outW, outH), ...COLOR_TAGS, '-r', fps, out];
 }
 // звук ролика: куски трека без вырезанных проигрышей (склейка с микро-затуханием, без щелчков) → затухание на входе/выходе → звуковые эффекты
 const CURVE = { smooth: 'qsin', linear: 'tri', fast: 'exp', soft: 'log' };
@@ -507,7 +507,9 @@ const runFF = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, 
 // и ролик 1080×1920 на мониторе 1080p выходил обрезанным и растянутым.
 async function openEngine(outW, outH, zoom, alpha) {
   const mk = (w, h, z) => { const x = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, frame: false, resizable: false, transparent: alpha, backgroundColor: alpha ? '#00000000' : '#000000',
-    webPreferences: { offscreen: true, backgroundThrottling: false, zoomFactor: z } }); x.__zoom = z; return x; };
+    webPreferences: { offscreen: true, backgroundThrottling: false, zoomFactor: z } });
+    // при создании Windows всё равно подгоняет окно под экран; повторная установка размера у окна без рамки уже не ограничивается
+    try { x.setContentSize(w, h); } catch (e) {} x.__zoom = z; return x; };
   let win = mk(outW, outH, zoom), [cw, ch] = win.getContentSize();
   if (Math.abs(cw - outW) > 1 || Math.abs(ch - outH) > 1) {
     // система всё же урезала окно: берём окно поменьше с тем же макетом — кадр выйдет мягче, но не искажённым
