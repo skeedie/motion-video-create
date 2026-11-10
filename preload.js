@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('api', {
   lastCrash: () => inv('lastCrash'),
   setLang: l => inv('setLang', l),
   cancelModel: () => inv('cancelModel'),
+  confirmSync: m => ipcRenderer.sendSync('confirmSync', m),
   modelsInfo: () => inv('modelsInfo'),
   modelDelete: k => inv('modelDelete', k),
   modelGet: withProgress('progress:models', k => inv('modelGet', k)),

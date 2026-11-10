@@ -23,7 +23,7 @@ const MODEL_DIR = () => UD('giga-ctc');
 const USER_PRESETS = () => UD('user-presets.json');
 let JOB_HTML = '<html></html>', mainWin = null, cancelFlag = false, LANG = 'ru';
 // подписи системных диалогов на английском (остальной интерфейс переводит окно)
-const DLG_EN = { 'Сохранить тайминги LRC': 'Save LRC timings', 'Сохранить субтитры SRT': 'Save SRT subtitles', 'Тайминги: LRC или SRT': 'Timings: LRC or SRT', 'Сохранить файл': 'Save file', 'Открыть файл': 'Open file', 'Сохранить видео': 'Save video', 'Сохранить обложку': 'Save cover', 'Сохранить кадр': 'Save frame', 'Папка для видео': 'Folder for videos', 'Видео MP4': 'MP4 video', 'MOV с прозрачностью (ProRes 4444)': 'MOV with alpha (ProRes 4444)', 'WebM с прозрачностью (VP9)': 'WebM with alpha (VP9)', 'GIF-анимация': 'GIF animation', 'Видеостикер Telegram (WebM)': 'Telegram video sticker (WebM)', 'Выберите трек': 'Choose a track', 'Выберите треки': 'Choose tracks', 'Аудио': 'Audio', 'Картинки': 'Images', 'Шрифты': 'Fonts', 'Проект Lyric Studio': 'Lyric Studio project', 'Сохранить проект': 'Save project', 'Открыть проект': 'Open project', 'Пресет Lyric Studio': 'Lyric Studio preset', 'Проект с треком': 'Project with track', 'Фото и видео': 'Photos and videos', 'Открыть пресет': 'Open preset', 'Сохранить пресет в файл': 'Save preset to file', 'Сохранить проект вместе с треком': 'Save project with track', 'Треки для пакетной обработки': 'Tracks for batch', 'Фон: фото или видео': 'Background: photo or video', 'Выберите картинку': 'Choose an image', 'Выберите шрифт': 'Choose a font' };
+const DLG_EN = { 'Да': 'Yes', 'Отмена': 'Cancel', 'Сохранить тайминги LRC': 'Save LRC timings', 'Сохранить субтитры SRT': 'Save SRT subtitles', 'Тайминги: LRC или SRT': 'Timings: LRC or SRT', 'Сохранить файл': 'Save file', 'Открыть файл': 'Open file', 'Сохранить видео': 'Save video', 'Сохранить обложку': 'Save cover', 'Сохранить кадр': 'Save frame', 'Папка для видео': 'Folder for videos', 'Видео MP4': 'MP4 video', 'MOV с прозрачностью (ProRes 4444)': 'MOV with alpha (ProRes 4444)', 'WebM с прозрачностью (VP9)': 'WebM with alpha (VP9)', 'GIF-анимация': 'GIF animation', 'Видеостикер Telegram (WebM)': 'Telegram video sticker (WebM)', 'Выберите трек': 'Choose a track', 'Выберите треки': 'Choose tracks', 'Аудио': 'Audio', 'Картинки': 'Images', 'Шрифты': 'Fonts', 'Проект Lyric Studio': 'Lyric Studio project', 'Сохранить проект': 'Save project', 'Открыть проект': 'Open project', 'Пресет Lyric Studio': 'Lyric Studio preset', 'Проект с треком': 'Project with track', 'Фото и видео': 'Photos and videos', 'Открыть пресет': 'Open preset', 'Сохранить пресет в файл': 'Save preset to file', 'Сохранить проект вместе с треком': 'Save project with track', 'Треки для пакетной обработки': 'Tracks for batch', 'Фон: фото или видео': 'Background: photo or video', 'Выберите картинку': 'Choose an image', 'Выберите шрифт': 'Choose a font' };
 const tr = s => LANG === 'en' && DLG_EN[s] || s;
 
 // ---------- журнал ----------
@@ -51,10 +51,17 @@ const handle = (name, fn) => ipcMain.handle(name, async (...a) => {
   finally { if (op && !--userOps) modelCancel = false; }
 });
 
+function refocus() { try { if (mainWin && !mainWin.isDestroyed() && mainWin.isFocused()) mainWin.webContents.focus(); } catch (e) {} }
+for (const k of ['showOpenDialog', 'showSaveDialog', 'showMessageBox']) { const orig = dialog[k].bind(dialog); dialog[k] = async (...a) => { try { return await orig(...a); } finally { setTimeout(refocus, 30); } }; }
+// подтверждения — системным окном из главного процесса (встроенный confirm() страницы в Electron ломает фокус полей на Windows)
+ipcMain.on('confirmSync', (e, msg) => { let ok = false; try { ok = dialog.showMessageBoxSync(mainWin, { type: 'question', buttons: [tr('Да'), tr('Отмена')], defaultId: 0, cancelId: 1, noLink: true, title: 'Lyric Studio', message: String(msg) }) === 0; } catch (x) {} e.returnValue = ok; setTimeout(refocus, 30); });
 function createWindow() {
   mainWin = new BrowserWindow({ width: 1500, height: 940, minWidth: 1150, minHeight: 720, backgroundColor: '#0E0F12', title: 'Lyric Studio',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false } });
   Menu.setApplicationMenu(null);
+  // Поля ввода «не срабатывали»: после системных окон (подтверждения, выбор файла) и после скрытых окон рендера
+  // Windows возвращает фокус окну, но не странице — клавиатура шла мимо, пока не свернёшь и не развернёшь окно.
+  mainWin.on('focus', refocus);
   mainWin.loadURL('app://app/index.html');
   mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   mainWin.webContents.on('render-process-gone', (e, d) => { log('окно редактора упало:', d); try { fs.writeFileSync(RUN_FLAG(), JSON.stringify({ time: Date.now(), version: app.getVersion(), reason: 'окно редактора: ' + (d && d.reason) })); } catch (x) {} if (d && d.reason !== 'clean-exit' && mainWin && !mainWin.isDestroyed()) setTimeout(() => { try { mainWin.reload(); } catch (x) {} }, 500); });
@@ -514,7 +521,7 @@ const runFF = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, 
 // Окно рендера. resizable:false обязателен: окну с рамкой изменения размера Windows не даёт стать больше экрана,
 // и ролик 1080×1920 на мониторе 1080p выходил обрезанным и растянутым.
 async function openEngine(outW, outH, zoom, alpha) {
-  const mk = (w, h, z) => { const x = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, frame: false, resizable: false, transparent: alpha, backgroundColor: alpha ? '#00000000' : '#000000',
+  const mk = (w, h, z) => { const x = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, frame: false, resizable: false, focusable: false, skipTaskbar: true, transparent: alpha, backgroundColor: alpha ? '#00000000' : '#000000',
     webPreferences: { offscreen: true, backgroundThrottling: false, zoomFactor: z } });
     // при создании Windows всё равно подгоняет окно под экран; повторная установка размера у окна без рамки уже не ограничивается
     try { x.setContentSize(w, h); } catch (e) {} x.__zoom = z; return x; };
@@ -729,7 +736,7 @@ async function grabFrame(job, outW, outH, t, alpha) {
     await frameAt(win, t); let img; try { img = await cdpCapture(win, alpha); if (img.isEmpty()) throw new Error('пустой снимок'); } catch (e) { log('снимок через отладчик не вышел:', e.message); img = await freshCapture(win); } const size = img.getSize();
     const info = await win.webContents.executeJavaScript('[innerWidth,innerHeight,devicePixelRatio]').catch(() => null);
     return { data: (size.width === outW && size.height === outH ? img : img.resize({ width: outW, height: outH })).toPNG(), size: [size.width, size.height], info: { inner: info, content: win.getContentSize() } };
-  } finally { win.destroy(); }
+  } finally { win.destroy(); setTimeout(refocus, 30); }
 }
 // кадр в PNG без диалога — для вариантов обложки
 handle('renderFrame', async (ev, job) => {
