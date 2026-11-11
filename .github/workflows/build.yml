@@ -2,7 +2,7 @@ name: Сборка .exe
 on:
   push:
     branches: [main]
-    paths-ignore: ['.github/workflows/model*.yml', '.github/workflows/neural-test.yml', 'dev/**', 'README.md']
+    paths-ignore: ['.github/workflows/model*.yml', '.github/workflows/neural-test.yml', '.github/workflows/ui-test.yml', 'dev/**', 'README.md']
   workflow_dispatch:
 permissions:
   contents: write
