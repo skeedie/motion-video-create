@@ -151,7 +151,7 @@ async function ciEdge(dir, rep) {
   await step('sticker', async R => { const r = await ex({ html: jobA.html, container: 'sticker', width: 512, start: 0, end: 3, vStart: .5, outDur: 2.5, audioPath: '', outPath: path.join(K, 'стикер.sticker') }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); R.path = path.basename(r.path); R.size = fs.statSync(r.path).size; if (!/\.webm$/.test(r.path) || R.size > 256 * 1024) err('sticker', `${R.path} ${R.size} байт`); });
   // 5. 60 к/с и ролик в 1 секунду, затухание длиннее ролика
   await step('fps60-1s', async R => { const out = path.join(K, '60 кадров.mp4'), r = await ex({ fps: 60, start: 0, end: 1, outDur: 1, fadeOut: 5, fadeIn: 3, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r));
-    const s = await runFFOut(['-hide_banner', '-i', out, '-map', '0:v', '-c', 'copy', '-f', 'null', '-']), fr = s.match(/frame=\s*(\d+)/g); R.frames = fr ? +fr.pop().match(/\d+/)[0] : 0; R.fps60 = /60 fps/.test(s); if (Math.abs(R.frames - 60) > 1 || !R.fps60) err('fps60-1s', `кадров ${R.frames}, 60 fps: ${R.fps60}`); });
+    const s = await runFFOut(['-hide_banner', '-i', out, '-map', '0:v', '-f', 'null', '-']), fr = s.match(/frame=\s*(\d+)/g); R.frames = fr ? +fr.pop().match(/\d+/)[0] : 0; R.fps60 = /60 fps/.test(s); if (Math.abs(R.frames - 60) > 1 || !R.fps60) err('fps60-1s', `кадров ${R.frames}, 60 fps: ${R.fps60}`); });
   // 6. трек короче отрезка: звук добивается тишиной, ролик нужной длины
   await step('short-track', async R => { const out = path.join(K, 'короткий трек.mp4'), r = await ex({ start: 10, end: 14, outDur: 4, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); const s = await runFFOut(['-hide_banner', '-i', out, '-map', '0:a', '-f', 'null', '-']), t = s.match(/time=(\d+):(\d+):([\d.]+)/g); R.audioSec = t ? durOf('Duration: ' + t.pop().slice(5)) : 0; if (R.audioSec < 3.8) err('short-track', `звук ${R.audioSec} с вместо 4`); });
   // 7. ошибки, которые должны приходить сразу и по-русски
@@ -178,9 +178,9 @@ async function ciEdge(dir, rep) {
   // 10. длинный ролик (больше 3 минут) из середины трека, черновик
   await step('long-draft', async R => { const out = path.join(K, 'длинный.mp4'), r = await ex({ draft: true, width: 360, fps: 15, start: 10, end: 196, outDur: 185, cuts: [{ a: 100, b: 101 }], audioPath: longTrack, loud: true, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); const s = await info(out); R.dur = durOf(s); if (Math.abs(R.dur - 185) > 0.3) err('long-draft', `длина ${R.dur} вместо 185`); });
   // 11. запуск установщика после выхода: путь с кириллицей и пробелом
-  if (win) await step('update-launch', async R => { for (const v of [false, true]) { const name = v ? 'b' : 'a', f = path.join(K, `LyricStudio-Setup-тест ${name}.cmd`), mk = path.join(K, `marker-${name}.txt`);
-    fs.writeFileSync(f, `@echo ok> "%~dp0marker-${name}.txt"\r\nexit\r\n`); startLater(f, 2, v); for (let i = 0; i < 50 && !fs.existsSync(mk); i++) await sleep(200); R[v ? 'verbatim' : 'plain'] = fs.existsSync(mk); }
-    if (!R[STARTLATER_VERBATIM ? 'verbatim' : 'plain']) err('update-launch', 'установщик не запустился бы: ' + JSON.stringify(R)); });
+  if (win) await step('update-launch', async R => { const f = path.join(K, "LyricStudio-Setup-тест О'Нил.cmd"), mk = path.join(K, 'marker.txt');
+    fs.writeFileSync(f, '@echo ok> "%~dp0marker.txt"\r\nexit\r\n'); startLater(f, 2); for (let i = 0; i < 50 && !fs.existsSync(mk); i++) await sleep(200); R.started = fs.existsSync(mk);
+    if (!R.started) err('update-launch', 'установщик не запустился бы'); });
   rep.edgeLeft = leftovers(); if (rep.edgeLeft.length) rep.errors.push('после всех проверок остались временные папки: ' + rep.edgeLeft);
   Object.assign(process.env, keepEnv); for (const k in keepEnv) if (keepEnv[k] === undefined) delete process.env[k];
   try { fs.rmSync(K, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); fs.rmSync(path.join(dir, 'locked.mp4'), { force: true }); } catch (e) {}
@@ -377,13 +377,11 @@ handle('checkUpdate', async () => {
   if (best && cmpVer(best.version, app.getVersion()) > 0) return best;
   return null;
 });
-// запуск файла через несколько секунд, уже после выхода программы (установщик обновления)
-function startLater(file, sec, verbatim = STARTLATER_VERBATIM) {
-  const cmd = `ping 127.0.0.1 -n ${sec} > nul & start "" "${file}"`;
-  return verbatim ? spawn('cmd.exe', ['/d', '/s', '/c', `"${cmd}"`], { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref()
-    : spawn('cmd.exe', ['/d', '/c', cmd], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+// Запуск файла через несколько секунд, уже после выхода программы (установщик обновления). Строка команды передаётся cmd.exe
+// как есть (/s + windowsVerbatimArguments): Node экранировал кавычки как \", cmd этого не понимает, и установщик не запускался вовсе.
+function startLater(file, sec) {
+  spawn('cmd.exe', ['/d', '/s', '/c', `"ping 127.0.0.1 -n ${sec} > nul & start "" "${file}""`], { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref();
 }
-let STARTLATER_VERBATIM = false;
 handle('installUpdate', async (ev, info) => {
   const progress = t => send(ev, 'progress:update', t);
   const portableExe = process.env.PORTABLE_EXECUTABLE_FILE;
