@@ -31,6 +31,9 @@
       "align.js",
       "separate.js",
       "neural.js",
+      "nn-host.js",
+      "nn-client.js",
+      "nn-jobs.js",
       "app/**/*"
     ],
     "asarUnpack": [

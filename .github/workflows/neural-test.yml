@@ -2,7 +2,7 @@ name: Проверка нейросетей
 on:
   push:
     branches: [main]
-    paths: ['neural.js', 'align.js', 'separate.js', 'dev/neural_ci.js', '.github/workflows/neural-test.yml']
+    paths: ['neural.js', 'align.js', 'separate.js', 'nn-host.js', 'nn-client.js', 'nn-jobs.js', 'dev/neural_ci.js', 'dev/test_nn_host.js', 'dev/ort_stub.js', 'dev/parentport_shim.js', '.github/workflows/neural-test.yml']
   workflow_dispatch:
 jobs:
   test:
@@ -11,14 +11,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
+      - name: Протокол процесса нейросетей (заглушка onnxruntime)
+        run: node dev/test_nn_host.js
       - name: Пакеты
         run: npm i --no-save onnxruntime-node@1.20.1 ffmpeg-static@5.2.0
       - name: Модели из служебного релиза
         run: |
-          mkdir -p models && cd models
+          mkdir -p models/giga-ctc models/w2v-en && cd models
           for f in beat_this_small.onnx v3_e2e_ctc.int8.onnx v3_e2e_ctc_vocab.txt htdemucs_ft_vocals_htdemucs_ft_vocals_fp16weights.onnx isnet-general-use.onnx; do
             curl -sSfL --retry 4 -o $f https://github.com/${{ github.repository }}/releases/download/models-v2/$f
           done
-          ls -la
-      - name: Запуск
+          for f in model.int8.onnx tokens.txt; do curl -sSfL --retry 4 -o giga-ctc/$f https://github.com/${{ github.repository }}/releases/download/model-v1/$f; done
+          for f in model.int8.onnx vocab.json; do curl -sSfL --retry 4 -o w2v-en/$f https://github.com/${{ github.repository }}/releases/download/model-en-v1/$f; done
+          curl -sSfL --retry 4 -o Kim_Vocal_2.onnx https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx
+          ls -laR
+      - name: Запуск (модели через процесс нейросетей)
         run: node dev/neural_ci.js models
