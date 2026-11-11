@@ -889,6 +889,7 @@ IS-Net — для BiRefNet нужно от 16 ГБ памяти ⇒ IS-Net — B
 Неуверенно распознанных слов: {}. Они подсвечены. Послушайте их; если слово верное, нажмите на «?». ⇒ Uncertain words: {}. They are highlighted. Listen to them; if a word is right, click its “?”.
 Трек «{}» не найден по старому пути: файл переместили или переименовали. Указать, где он лежит? ⇒ Track “{}” was not found at its old location: the file was moved or renamed. Show where it is?
 {} — не найден ⇒ {} — not found
+трек ⇒ track
 не удалось расслышать слова — попробуйте «сначала отделить вокал» ⇒ couldn't hear any words — try “separate vocals first”
 Текст на английском — включил английскую модель ⇒ The lyrics are in English — switched to the English model
 Текст на русском — включил русскую модель ⇒ The lyrics are in Russian — switched to the Russian model
@@ -994,6 +995,7 @@ SRT сохранён — время по готовому ролику ⇒ SRT s
     if (window.LANG !== 'en' || !CY.test(s)) return s;
     const m = s.match(/^(\s*)([\s\S]*?)(\s*)$/), core = m[2];
     if (DICT.has(core)) return m[1] + DICT.get(core) + m[3];
+    if (core.includes('\n') && depth < 3) return m[1] + core.split('\n').map(l => T(l, depth + 1)).join('\n') + m[3]; // статус из нескольких строк — по строкам
     if (depth < 3) for (const [re, en] of PAT) {
       const r = core.match(re); if (!r) continue;
       let k = 1; return m[1] + en.replace(/\{\}/g, () => T(r[k++] ?? '', depth + 1)) + m[3];

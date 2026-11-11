@@ -62,7 +62,8 @@
       const x0 = t2x(wd.t), x1 = Math.max(x0 + 14, t2x(wd.e)); if (x1 < 0 || x0 > w) return;
       const on = drag && drag.kind === 'word' && drag.set.includes(i), hv = hover && hover.kind === 'word' && hover.i === i;
       ctx.fillStyle = on ? '#9B6BFF' : hv ? '#3D4352' : '#2A2F38'; rr(x0, yWords + 2, x1 - x0 - 1, ROW.words - 4, 5); ctx.fill();
-      ctx.save(); ctx.beginPath(); ctx.rect(x0, yWords, x1 - x0 - 2, ROW.words); ctx.clip(); ctx.fillStyle = on ? '#fff' : '#D1D5DB'; ctx.fillText(wd.w, x0 + 4, yWords + 18); ctx.restore();
+      // подпись — только если до следующего слова есть место (при 1000 слов в окне иначе кадр рисуется десятки мс)
+      const nx = p.words[i + 1] ? t2x(p.words[i + 1].t) : 1e9; if (nx - x0 >= 18 || on || hv) { ctx.save(); ctx.beginPath(); ctx.rect(x0, yWords, x1 - x0 - 2, ROW.words); ctx.clip(); ctx.fillStyle = on ? '#fff' : '#D1D5DB'; ctx.fillText(wd.w, x0 + 4, yWords + 18); ctx.restore(); }
       ctx.fillStyle = '#9B6BFF'; ctx.fillRect(Math.round(x0), yWords + 2, 2, ROW.words - 4);
       if (wd.acc) { ctx.fillStyle = wd.acc.color || '#FDE047'; ctx.beginPath(); ctx.arc(x1 - 6, yWords + 6, 3.5, 0, Math.PI * 2); ctx.fill(); }
       if (wd.adlib) { ctx.fillStyle = 'rgba(255,90,95,.8)'; ctx.fillRect(x0, yWords + ROW.words - 5, Math.max(2, x1 - x0 - 1), 2); }
@@ -134,7 +135,9 @@
     peaks = null; need = true;
   }
   function follow() { if (!H.playing || !H.playing()) return; const t = H.time(); if (!drag && view && (t > view.t1 || t < view.t0)) { const s = view.t1 - view.t0; view.t0 = t - s * 0.1; view.t1 = view.t0 + s; peaks = null; } }
-  function loop() { follow(); if (need || true) draw(); requestAnimationFrame(loop); }
+  // перерисовка — когда что-то поменялось или сдвинулся курсор (и раз в полсекунды на всякий случай), а не каждый кадр
+  let lastT = null, lastDraw = 0;
+  function loop() { follow(); const t = H.time(), now = performance.now(); if (need || t !== lastT || now - lastDraw > 500) { lastT = t; lastDraw = now; draw(); } requestAnimationFrame(loop); }
   window.Timeline = {
     init(canvas, hooks) { cv = canvas; ctx = cv.getContext('2d'); H = hooks; resize(); new ResizeObserver(resize).observe(cv.parentElement);
       cv.addEventListener('pointerdown', onDown); cv.addEventListener('pointermove', onMove); cv.addEventListener('pointerup', onUp); cv.addEventListener('pointercancel', onUp);
