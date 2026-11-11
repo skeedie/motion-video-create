@@ -139,10 +139,11 @@ function buildSpec(forExport, opts = {}) {
     const s = Object.assign({ words: [sc.a, sc.b] }, out);
     if (sc.scale && s.widget) s.widget.scale = +sc.scale;
     const punch = [].concat(out.punch || []);
-    if (s.widget && sc.bump != null && sc.bump !== '') punch.push({ word: '·', at: +sc.bump, style: 'bump' });
-    if (s.widget && sc.stamp) punch.push({ word: sc.stamp, at: sc.stampAt !== '' && sc.stampAt != null ? +sc.stampAt : cx.word(cx.n - 2), style: 'stamp', color: '#16A34A', top: 12, right: 20, size: 26, rot: -9 });
+    const inSc = v => v !== '' && v != null && +v >= sc.a && +v < sc.b; // слово акцента может оказаться в соседней сцене (после правки границ) — тогда «авто»
+    if (s.widget && inSc(sc.bump)) punch.push({ word: '·', at: +sc.bump, style: 'bump' });
+    if (s.widget && sc.stamp) punch.push({ word: sc.stamp, at: inSc(sc.stampAt) ? +sc.stampAt : cx.word(cx.n - 2), style: 'stamp', color: '#16A34A', top: 12, right: 20, size: 26, rot: -9 });
     const fxs = [];
-    if (sc.fx) fxs.push({ type: 'emoji', emoji: sc.fx, at: sc.fxAt !== '' && sc.fxAt != null ? +sc.fxAt : cx.word(0), dir: 'up', front: false, n: 12 });
+    if (sc.fx) fxs.push({ type: 'emoji', emoji: sc.fx, at: inSc(sc.fxAt) ? +sc.fxAt : cx.word(0), dir: 'up', front: false, n: 12 });
     // дополнительные акценты сцены: сколько угодно подпрыгиваний, штампов и эмодзи, каждый на своём слове
     let stampN = sc.stamp ? 1 : 0;
     (sc.accents || []).forEach(a => { const at = a.at !== '' && a.at != null && +a.at >= sc.a && +a.at < sc.b ? +a.at : null;
@@ -315,7 +316,7 @@ $$('.bestBtn').forEach(b => b.onclick = () => bestClip(+b.dataset.v));
 // ---------- превью ----------
 function scheduleRebuild(ms = 350, noHistory) { if (!noHistory) propagateRepeats(); clearTimeout(rebuildTimer); rebuildTimer = setTimeout(rebuildPreview, ms); if (!noHistory) touch(); Timeline.redraw(); }
 async function rebuildPreview() {
-  if (!proj.words.length) { $('#preview').srcdoc = '<body style="margin:0;background:#111;color:#666;font:600 18px Inter;display:flex;align-items:center;justify-content:center;height:100vh">Нет текста</body>'; return; }
+  if (!proj.words.length) { $('#preview').srcdoc = '<body style="margin:0;background:#111;color:#666;font:600 18px Inter;display:flex;align-items:center;justify-content:center;height:100vh">' + esc(T('Нет текста')) + '</body>'; return; }
   await ensureSpectrum();
   const fr = $('#preview'), [W, H] = FMT[proj.style.format]; frameReady = false;
   fr.width = W; fr.height = H; fr.style.width = W + 'px'; fr.style.height = H + 'px'; fitStage();
@@ -439,8 +440,9 @@ $('#bAlign').onclick = async () => {
     proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked; proj.vocalsQ = $('#alVocalsQ').value;
     const r = await api.align({ audioPath: proj.audioPath, lyrics: proj.lyrics, from: proj.alFrom === '' ? null : +proj.alFrom, to: proj.alTo === '' ? null : +proj.alTo, lang: proj.lang, vocals: proj.vocals, vocalsQ: proj.vocalsQ },
       p => { st.textContent = p; });
+    const oldW = proj.words, oldS = proj.scenes;
     proj.words = r.words; markAdlibs(proj.words); proj.duration = r.duration || proj.duration;
-    if (!beatInfo) analyzeBeats(); if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
+    if (!beatInfo) analyzeBeats(); if (proj.style.trim.auto) autoTrim(true); else autoRange(); if (!keepScenes(oldW, oldS)) autoScenes();
     st.className = 'status ok'; st.textContent = `Готово: ${r.words.length} слов, ${proj.scenes.length} сцен.` + (r.median < 0.15 ? '\nВокал плохо слышно — проверьте тайминги на таймлайне.' : '');
     fillStyle(); renderAll(); Timeline.fit(); scheduleRebuild(50);
   } catch (e) { if (wasCancelled(e)) { st.className = 'status'; st.textContent = 'Отменено.'; } else { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); api.log('error', 'синхронизация: ' + (e.message || e)); } }
@@ -529,7 +531,7 @@ function renderCuts() {
   box.querySelectorAll('input').forEach(x => x.onchange = () => { st.cuts[+x.dataset.i].on = x.checked; specCache = null; renderCuts(); scheduleRebuild(50); });
   box.querySelectorAll('button').forEach(x => x.onclick = () => { st.cuts.splice(+x.dataset.x, 1); specCache = null; renderCuts(); scheduleRebuild(50); });
 }
-function markAdlibs(words) { let inside = false; words.forEach(w => { const s = w.w.trim(); if (s.startsWith('(')) inside = true; w.adlib = inside || undefined; if (!w.adlib) delete w.adlib; if (/\)[,.!?…]*$/.test(s)) inside = false; }); }
+function markAdlibs(words) { let inside = false; words.forEach((w, i) => { const s = w.w.trim(); if (i && w.line !== words[i - 1].line) inside = false; /* незакрытая «(» не прячет весь остальной текст */ if (s.startsWith('(')) inside = true; w.adlib = inside || undefined; if (!w.adlib) delete w.adlib; if (/\)[,.!?…]*$/.test(s)) inside = false; }); }
 function autoRange() { if (!proj.words.length) return; const w0 = proj.words[0], w1 = proj.words[proj.words.length - 1]; proj.style.start = Math.max(0, +(w0.t - 0.3).toFixed(2)); proj.style.end = +Math.min(proj.duration || 1e9, w1.e + 0.45).toFixed(2); specCache = null; }
 const blankScene = (a, b, tpl) => ({ a, b, tpl, f: {}, bump: '', stamp: '', stampAt: '', fx: '', fxAt: '', scale: '' });
 // подбор шаблона по словам строки: [регулярка, шаблоны по приоритету]
@@ -564,6 +566,19 @@ function pickByWords(text, recent) {
   for (const [re, list] of KEYMAP) if (re.test(t)) { const c = list.find(x => TPL[x] && !recent.includes(x)); if (c) return c; }
   return null;
 }
+// повторная синхронизация после правки текста: если строк столько же, сцены (шаблоны, поля, акценты) и акценты слов
+// остаются на своих строках, а не пересобираются с нуля
+function keepScenes(oldW, oldS) {
+  if (!oldS.length || !oldW.length || !proj.words.length) return false;
+  const lines = Wd => { const L = []; Wd.forEach((w, i) => { const g = L[L.length - 1]; if (g && g.line === w.line) g.b = i + 1; else L.push({ line: w.line, a: i, b: i + 1 }); }); return L; };
+  const LO = lines(oldW), LN = lines(proj.words); if (LO.length !== LN.length) return false;
+  const map = i => { const k = LO.findIndex(g => i >= g.a && i < g.b); return k < 0 ? -1 : Math.min(LN[k].b - 1, LN[k].a + (i - LO[k].a)); };
+  const st = oldS.map(sc => map(sc.a)); if (st[0] !== 0 || st.some((v, i) => v < 0 || (i && v <= st[i - 1]))) return false;
+  proj.scenes = oldS.map((sc, i) => { const a = st[i], b = i + 1 < st.length ? st[i + 1] : proj.words.length, n = JSON.parse(JSON.stringify(sc)), mv = v => v === '' || v == null ? v : (a + (+v - sc.a) < b ? String(a + (+v - sc.a)) : '');
+    Object.assign(n, { a, b, bump: mv(sc.bump) ?? '', stampAt: mv(sc.stampAt) ?? '', fxAt: mv(sc.fxAt) ?? '' }); if (n.accents) n.accents = n.accents.map(x => Object.assign(x, { at: mv(x.at) ?? '' })); return n; });
+  oldW.forEach((w, i) => { if (w.acc) { const j = map(i); if (j >= 0 && !proj.words[j].acc) proj.words[j].acc = w.acc; } });
+  if (sel >= proj.scenes.length) sel = 0; msel = new Set([sel]); return true;
+}
 function autoScenes() {
   const per = proj.perScene || 2, lines = [], kin = $('#autoKin').checked, smart = $('#autoSmart').checked;
   proj.words.forEach((w, i) => { const L = lines[lines.length - 1]; if (L && L.line === w.line) L.b = i + 1; else lines.push({ line: w.line, a: i, b: i + 1 }); });
@@ -589,7 +604,7 @@ function autoScenes() {
   sel = 0; msel = new Set([0]);
 }
 $('#bAutoScenes').onclick = async () => { if (!proj.words.length) return toast('Сначала синхронизируйте слова'); if (!await Dialogs.confirm('Пересобрать сцены? Текущие настройки сцен пропадут (можно вернуть через Ctrl+Z).', { ok: 'Пересобрать' })) return; autoScenes(); renderAll(); scheduleRebuild(50); };
-$$('#perScene button').forEach(b => b.onclick = () => { proj.perScene = +b.dataset.v; $$('#perScene button').forEach(x => x.classList.toggle('on', x === b)); });
+$$('#perScene button').forEach(b => b.onclick = () => { proj.perScene = +b.dataset.v; $$('#perScene button').forEach(x => x.classList.toggle('on', x === b)); touch(); });
 
 // ---------- слова ----------
 function renderWords() {
@@ -601,7 +616,7 @@ function renderWords() {
     const d = document.createElement('div'); d.className = 'w' + (w.line !== ln ? ' ln' : '') + (w.unsure ? ' unsure' : ''); ln = w.line;
     d.innerHTML = `<span>${esc(w.w)}${w.unsure ? `<b class="uq" title="${esc(T('Нейросеть не уверена в этом слове. Нажмите, если оно верное'))}">?</b>` : ''}</span><button data-d="-0.05">−</button><span class="mono">${w.t.toFixed(2)}</span><button data-d="0.05">+</button>`;
     d.children[0].onclick = e => { if (e.target.classList.contains('uq')) { delete w.unsure; renderWords(); Timeline.redraw(); touch(); return; } seekTo(Math.max(0, w.t - .15)); };
-    d.querySelectorAll('button').forEach(b => b.onclick = () => { w.t = +(w.t + +b.dataset.d).toFixed(2); w.e = Math.max(w.e, w.t + .05); d.querySelector('.mono').textContent = w.t.toFixed(2); scheduleRebuild(); });
+    d.querySelectorAll('button').forEach(b => b.onclick = () => { const lo = i ? proj.words[i - 1].t + .03 : 0, hi = proj.words[i + 1] ? proj.words[i + 1].t - .03 : 1e9; w.t = +Math.max(lo, Math.min(hi, w.t + +b.dataset.d)).toFixed(2); w.e = +Math.max(w.e, w.t + .05).toFixed(2); /* не обгоняет соседей, как и на таймлайне */ d.querySelector('.mono').textContent = w.t.toFixed(2); scheduleRebuild(); });
     box.append(d);
   });
 }
@@ -764,15 +779,24 @@ function renderAccents(sc, card) {
 // слово сцены под курсором воспроизведения — новый акцент встаёт на него
 function curWordIn(sc) { const t = curT(); let best = null; for (let i = sc.a; i < sc.b; i++) if (proj.words[i] && proj.words[i].t <= t + .05) best = i; return best; }
 $('#seScale').oninput = e => { proj.scenes[sel].scale = +e.target.value; $('#seScaleV').textContent = (+e.target.value).toFixed(2); scheduleRebuild(200); };
-function mergePrev() { if (sel < 1) return; const p = proj.scenes[sel - 1]; p.b = proj.scenes[sel].b; proj.scenes.splice(sel, 1); sel--; renderAll(); scheduleRebuild(); }
-function mergeNext() { if (sel >= proj.scenes.length - 1) return; const c = proj.scenes[sel]; c.b = proj.scenes[sel + 1].b; proj.scenes.splice(sel + 1, 1); renderAll(); scheduleRebuild(); }
+// акценты сцены, чьё слово ушло в другую сцену (разделение, сдвиг границы), снимаются — иначе панель показывает «нет», а акцент срабатывает в соседней сцене
+function fixRefs(sc) {
+  const out = v => v !== '' && v != null && (+v < sc.a || +v >= sc.b);
+  if (out(sc.bump)) { sc.bump = ''; delete sc.autoBump; } if (out(sc.stampAt)) sc.stampAt = ''; if (out(sc.fxAt)) sc.fxAt = '';
+  if (sc.accents) { sc.accents = sc.accents.filter(a => !(a.k === 'bump' && out(a.at))).map(a => out(a.at) ? Object.assign({}, a, { at: '' }) : a); if (!sc.accents.length) delete sc.accents; }
+}
+// объединение: дополнительные акценты убранной сцены остаются на своих словах
+function mergeScenes(i) { const p = proj.scenes[i], q = proj.scenes[i + 1]; p.b = q.b; if (q.accents && q.accents.length) p.accents = (p.accents || []).concat(q.accents); proj.scenes.splice(i + 1, 1); msel = new Set([...msel].filter(k => k !== i + 1).map(k => k > i + 1 ? k - 1 : k)); }
+function mergePrev() { if (sel < 1) return; mergeScenes(sel - 1); sel--; renderAll(); scheduleRebuild(); }
+function mergeNext() { if (sel >= proj.scenes.length - 1) return; mergeScenes(sel); renderAll(); scheduleRebuild(); }
 function splitScene(atTime) {
   let i = atTime != null ? sceneAt(atTime) : sel; if (i < 0) i = sel; const sc = proj.scenes[i]; if (!sc || sc.b - sc.a < 2) return toast('Слишком короткая сцена');
   const ws = proj.words; let m = -1;
   if (atTime != null) { for (let k = sc.a + 1; k < sc.b; k++) if (ws[k].t >= atTime - .02) { m = k; break; } if (m < 0) return toast('Курсор после последнего слова сцены'); }
   else { m = sc.a + Math.floor((sc.b - sc.a) / 2); for (let d = 0; d < sc.b - sc.a; d++) { for (const k of [m + d, m - d]) if (k > sc.a && k < sc.b && ws[k].line !== ws[k - 1].line) { m = k; d = 1e9; break; } } }
   const nw = Object.assign(blankScene(m, sc.b, AUTO_TPL[1][(i + 3) % AUTO_TPL[1].length])); sc.b = m;
-  proj.scenes.splice(i + 1, 0, nw); sel = i; renderAll(); scheduleRebuild();
+  const moved = (sc.accents || []).filter(a => a.at !== '' && a.at != null && +a.at >= m); if (moved.length) nw.accents = moved.map(a => Object.assign({}, a)); // акценты второй половины переходят вместе со словами
+  fixRefs(sc); proj.scenes.splice(i + 1, 0, nw); sel = i; renderAll(); scheduleRebuild();
 }
 function sceneLook(sc) {
   const rel = v => v === '' || v == null ? '' : (+v - sc.a);
@@ -784,8 +808,8 @@ function applyLook(sc, L) {
   if (L.accents && L.accents.length) sc.accents = L.accents.map(a => Object.assign({}, a, { at: abs(a.at) === '' ? '' : String(abs(a.at)) })); else delete sc.accents;
 }
 function targets() { return msel.size > 1 ? [...msel].sort((a, b) => a - b) : [sel]; }
-function copyLook() { const sc = proj.scenes[sel]; if (!sc) return; clip = sceneLook(sc); toast('Вид сцены скопирован — выделите сцены и нажмите Ctrl+V', 2600); }
-function pasteLook() { if (!clip) return toast('Сначала скопируйте вид сцены (Ctrl+C)'); const ts = targets(); ts.forEach(i => applyLook(proj.scenes[i], clip)); renderAll(); scheduleRebuild(50); toast(ts.length > 1 ? `Вставлено в ${ts.length} сцен` : 'Вставлено'); }
+function copyLook() { const sc = proj.scenes[sel]; if (!sc) return; clip = sceneLook(sc); const cs = JSON.stringify(clip); clip.__assets = {}; for (const k in proj.assets) if (cs.includes('asset:' + k)) clip.__assets[k] = proj.assets[k]; /* картинки вида едут с ним — можно вставить и в другой проект */ toast('Вид сцены скопирован — выделите сцены и нажмите Ctrl+V', 2600); }
+function pasteLook() { if (!clip) return toast('Сначала скопируйте вид сцены (Ctrl+C)'); const ts = targets(); for (const k in clip.__assets || {}) if (!proj.assets[k]) proj.assets[k] = clip.__assets[k]; ts.forEach(i => applyLook(proj.scenes[i], clip)); renderAll(); scheduleRebuild(50); toast(ts.length > 1 ? `Вставлено в ${ts.length} сцен` : 'Вставлено'); }
 $('#seCopy').onclick = copyLook; $('#sePaste').onclick = pasteLook;
 // ---- повторы (припев) ----
 function repeatsOf(i) { const sig = sceneSig(proj.scenes[i]); if (sig.split(' ').length < 2) return []; return proj.scenes.map((sc, k) => k).filter(k => k !== i && sceneSig(proj.scenes[k]) === sig); }
@@ -821,15 +845,15 @@ function openGallery(second) {
   $('#gallery').hidden = false;
 }
 function applyUserTpl(sc, u) {
-  const f = JSON.parse(JSON.stringify(u.f || {}));
-  for (const k in f) if (typeof f[k] === 'string' && f[k].startsWith('data:')) { const id = uid(); proj.assets[id] = f[k]; f[k] = 'asset:' + id; }
+  const toAsset = o => { if (typeof o === 'string' && o.startsWith('data:')) { const id = uid(); proj.assets[id] = o; return 'asset:' + id; } if (Array.isArray(o)) return o.map(toAsset); if (o && typeof o === 'object') { for (const k in o) o[k] = toAsset(o[k]); } return o; };
+  const f = toAsset(JSON.parse(JSON.stringify(u.f || {})));
   applyLook(sc, Object.assign({}, u, { f, tpl: u.base }));
 }
 $('#seSaveTpl').onclick = () => { $('#seSaveTplBox').hidden = !$('#seSaveTplBox').hidden; $('#seTplNameIn').focus(); };
 $('#seSaveTplGo').onclick = async () => {
   const name = $('#seTplNameIn').value.trim(); if (!name) return toast('Впишите название шаблона');
   const sc = proj.scenes[sel], L = sceneLook(sc), f = {};
-  for (const k in L.f) f[k] = asset(L.f[k]);
+  for (const k in L.f) f[k] = deepAssets(L.f[k]); // и картинки внутри блоков конструктора — иначе в другом проекте их нет
   const u = { base: L.tpl, f, scale: L.scale, stamp: L.stamp, fx: L.fx, bump: L.bump, stampAt: L.stampAt, fxAt: L.fxAt };
   try { const r = $('#stage').getBoundingClientRect(); const th = await api.captureRect({ x: r.x, y: r.y + r.height * .15, width: r.width, height: r.height * .7 }); if (th) u.thumb = th; } catch (e) {}
   USER_TPL[name] = u; await api.saveUserTemplates(USER_TPL); $('#seSaveTplBox').hidden = true; $('#seTplNameIn').value = ''; toast(`Шаблон «${name}» сохранён — он в галерее, раздел «Мои»`, 3000);
@@ -845,14 +869,14 @@ function renderPresets() {
   $$('#presetGrid .pr').forEach(d => d.onclick = async e => {
     const k = d.dataset.k;
     if (e.target.classList.contains('del')) { if (!await Dialogs.confirm(`Удалить пресет «${k}»?`, { ok: 'Удалить', danger: true })) return; delete USER_PRESETS[k]; api.saveUserPresets(USER_PRESETS); if (proj.style.preset === k) proj.style.preset = 'melhor-lenta'; renderPresets(); scheduleRebuild(50); return; }
-    proj.style.preset = k; const p = PRESETS[k] || USER_PRESETS[k] || {}; if (p.format) proj.style.format = p.format;
+    proj.style.preset = k; // формат ролика выбирает пользователь: у всех встроенных пресетов записан 9:16, и клик по пресету сбрасывал 1:1 / 16:9 / 4:5
     if (USER_PRESETS[k] && USER_PRESETS[k].__fx) proj.style.fx = Object.assign({ grain: 0, vhs: 0, aberr: 0, shake: 0 }, USER_PRESETS[k].__fx);
     renderPresets(); fillStyle(); scheduleRebuild(50);
   });
 }
 function fillStyle() {
   const st = proj.style, c = st.custom, fx = st.fx;
-  $$('#fmt button').forEach(b => b.classList.toggle('on', b.dataset.v === st.format));
+  $$('#fmt button').forEach(b => b.classList.toggle('on', b.dataset.v === st.format)); $$('#perScene button').forEach(b => b.classList.toggle('on', +b.dataset.v === (proj.perScene || 2)));
   $('#vStart').value = st.start; $('#vEnd').value = st.end; $('#artist').value = st.artist; $('#songTitle').value = st.title; $('#wm').value = st.wm; $('#wmOp').value = st.wmOp;
   imgPicker($('#wmLogo'), st.wmImg, async () => { const a = await loadImage(true, 400); if (a) { st.wmImg = a; fillStyle(); scheduleRebuild(50); } }, () => { st.wmImg = ''; fillStyle(); scheduleRebuild(50); }, 'Логотип-картинка…', v => { st.wmImg = v; fillStyle(); scheduleRebuild(50); });
   $('#partType').value = st.part || ''; $('#partColor').value = st.partColor; const p = PRESETS[st.preset] || USER_PRESETS[st.preset] || {};
@@ -975,7 +999,7 @@ $('#bPresetImport').onclick = async () => {
 async function addPresets(list) {
   let n = 0, last = null;
   for (const it of list) {
-    try { const j = JSON.parse(it.json), p = j.preset || j; if (typeof p !== 'object' || Array.isArray(p)) throw 0; let name = (j.name || it.name || 'пресет').slice(0, 40); while (PRESETS[name] || (USER_PRESETS[name] && JSON.stringify(USER_PRESETS[name]) !== JSON.stringify(p))) name += ' 2'; USER_PRESETS[name] = p; n++; last = name; }
+    try { const j = JSON.parse(it.json), p = j && typeof j === 'object' && 'preset' in j ? j.preset : j; if (!p || typeof p !== 'object' || Array.isArray(p)) throw 0; let name = (j.name || it.name || 'пресет').slice(0, 40); while (PRESETS[name] || (USER_PRESETS[name] && JSON.stringify(USER_PRESETS[name]) !== JSON.stringify(p))) name += ' 2'; USER_PRESETS[name] = p; n++; last = name; }
     catch (e) { toastErr('Файл «' + it.name + '» не похож на пресет'); }
   }
   if (n) { await api.saveUserPresets(USER_PRESETS); proj.style.preset = last; renderPresets(); fillStyle(); scheduleRebuild(50); toast(n === 1 ? `Пресет «${last}» добавлен` : `Добавлено пресетов: ${n}`); }
@@ -992,12 +1016,18 @@ $$('.tabs').forEach(tb => tb.querySelectorAll('button').forEach(b => b.onclick =
 let hist = [], hpos = -1, histTimer = null;
 const snap = () => { const { assets, ...rest } = proj; return JSON.stringify(rest); };
 function histReset() { hist = [snap()]; hpos = 0; updUndo(); }
-function histCommit() { const s = snap(); if (s === hist[hpos]) return; hist = hist.slice(0, hpos + 1); hist.push(s); if (hist.length > 120) hist.shift(); hpos = hist.length - 1; updUndo(); }
+// пока кнопка мыши зажата (тянут слово, границу сцены, ползунок), шаг истории не записывается — всё перетаскивание отменяется одним Ctrl+Z
+let ptrHeld = false; window.addEventListener('pointerdown', () => { ptrHeld = true; }, true); ['pointerup', 'pointercancel', 'blur'].forEach(ev => window.addEventListener(ev, () => { ptrHeld = false; }, true)); window.addEventListener('pointermove', e => { if (!e.buttons) ptrHeld = false; }, true);
+function histCommit(force) { if (!force && (ptrHeld || Timeline.dragging)) { clearTimeout(histTimer); histTimer = setTimeout(histCommit, 300); return; } const s = snap(); if (s === hist[hpos]) return; hist = hist.slice(0, hpos + 1); hist.push(s); if (hist.length > 120) hist.shift(); hpos = hist.length - 1; updUndo(); }
 function touch() { dirty = true; clearTimeout(histTimer); histTimer = setTimeout(histCommit, 400); updTitle(); }
 function histGo(d) {
-  clearTimeout(histTimer); histCommit(); const np = hpos + d; if (np < 0 || np >= hist.length) return;
-  hpos = np; const keep = proj.assets; proj = JSON.parse(hist[hpos]); proj.assets = keep; dirty = true; $('#lyrics').value = proj.lyrics || '';
+  if (Timeline.dragging) return; // Ctrl+Z посреди перетаскивания на таймлайне подменил бы слова под мышью
+  clearTimeout(histTimer); histCommit(true); const np = hpos + d; if (np < 0 || np >= hist.length) return;
+  hpos = np; const keep = proj.assets, wasAudio = proj.audioPath, wasBpm = proj.bpm; proj = JSON.parse(hist[hpos]); proj.assets = keep; dirty = true; $('#lyrics').value = proj.lyrics || '';
+  // отменили или вернули выбор трека — играть должен трек из восстановленного состояния
+  if (proj.audioPath !== wasAudio) { audio.pause(); playing = false; $('#bPlay').textContent = '▶'; if (proj.audioPath) loadAudio({ path: proj.audioPath, name: proj.audioName }).then(() => { $('#audioName').textContent = proj.audioName; Timeline.fit(); scheduleRebuild(50, true); }).catch(e => toastErr('Не удалось прочитать файл: ' + e.message)); else { audio.removeAttribute('src'); audioData = null; beatInfo = null; specCache = null; showBpm(); $('#audioName').textContent = 'не выбран'; } }
   if (sel >= proj.scenes.length) sel = Math.max(0, proj.scenes.length - 1); specCache = null;
+  if (proj.audioPath === wasAudio && (proj.bpm || null) !== (wasBpm || null) && audioData) analyzeBeats(); // отменили смену темпа — сетка битов тоже прежняя
   renderAll(); updUndo(); clearTimeout(rebuildTimer); rebuildTimer = setTimeout(rebuildPreview, 60); toast(d < 0 ? 'Отменено' : 'Повторено', 900);
 }
 function updUndo() { $('#bUndo').disabled = hpos <= 0; $('#bRedo').disabled = hpos >= hist.length - 1; }
@@ -1008,10 +1038,14 @@ function updTitle() { $('#projName').textContent = (projPath ? projPath.split(/[
 function renderAll() { renderStickers(); msel = new Set([...msel].filter(i => i < proj.scenes.length)); if (!msel.size || !msel.has(sel)) msel = new Set([sel]); renderStrip(); renderScene(); renderPresets(); fillStyle(); updTitle(); }
 function applyProject(p, path) {
   proj = merge(newProject(), p); proj.style = merge(newProject().style, p.style || {}); proj.assets = p.assets || {}; proj.fonts = p.fonts || [];
+  // проекты старых версий: у сцен могло не быть полей (f и т. п.), сцены за пределами слов не показываются и ломали таймлайн
+  if (!Array.isArray(proj.words)) proj.words = []; if (!Array.isArray(proj.scenes)) proj.scenes = []; if (!Array.isArray(proj.style.cuts)) proj.style.cuts = [];
+  proj.scenes = proj.scenes.filter(sc => sc && +sc.a >= 0 && +sc.a < proj.words.length && +sc.b > +sc.a).map(sc => Object.assign(blankScene(+sc.a, Math.min(+sc.b, proj.words.length), sc.tpl || 'chat'), sc, { a: +sc.a, b: Math.min(+sc.b, proj.words.length), f: sc.f && typeof sc.f === 'object' ? sc.f : {} }));
   projPath = path || null; $('#alLang').value = proj.lang || 'ru'; $('#alVocals').checked = !!proj.vocals; $('#alVocalsQ').value = proj.vocalsQ || 'fast'; $('#alVocalsQ').hidden = !proj.vocals; $('#alVocHint').hidden = !proj.vocals; $('#lyrics').value = proj.lyrics; $('#alFrom').value = proj.alFrom; $('#alTo').value = proj.alTo; $('#audioName').textContent = proj.audioName || 'не выбран';
   sel = 0; specCache = null; beatInfo = null; showBpm(); registerFonts();
 }
 async function afterLoad() {
+  if (!proj.audioPath) { audio.pause(); playing = false; audio.removeAttribute('src'); audioData = null; $('#bPlay').textContent = '▶'; } // у открытого проекта трека нет — прежний трек не должен играть
   if (proj.audioPath) { try { await loadAudio({ path: proj.audioPath, name: proj.audioName }); } catch (e) { audio.removeAttribute('src'); audioData = null; $('#audioName').textContent = (proj.audioName || 'трек') + ' — не найден';
       if (await Dialogs.confirm(`Трек «${proj.audioName || ''}» не найден по старому пути: файл переместили или переименовали. Указать, где он лежит?`, { ok: 'Указать файл…', cancel: 'Не сейчас' })) { const info = await api.pickAudio(); if (info) { try { await loadAudio(info); touch(); toast('Трек подключён заново'); } catch (x) { toastErr('Не удалось прочитать файл: ' + x.message); } } }
       else toast('Трек не подключён — выберите его кнопкой «Выбрать файл…»', 4500); } }
@@ -1030,13 +1064,13 @@ async function saveProject(as) {
   if (p) { projPath = p; dirty = false; updTitle(); api.clearAutosave(); toast('Сохранено'); }
 }
 async function openProject(path) {
-  if (dirty && proj.words.length && !await Dialogs.confirm('Текущий проект не сохранён. Открыть другой?', { ok: 'Открыть' })) return;
+  if (dirty && (proj.words.length || (proj.lyrics || '').trim()) && !await Dialogs.confirm('Текущий проект не сохранён. Открыть другой?', { ok: 'Открыть' })) return; // вставленный, но ещё не синхронизированный текст тоже работа
   const r = await api.openProject(path); if (!r) return;
   let p; try { p = JSON.parse(r.json); } catch (e) { return toastErr('Файл проекта повреждён'); }
   applyProject(p, r.path); await afterLoad();
 }
 async function newFrom(keepStyle) {
-  if (dirty && proj.words.length && !await Dialogs.confirm('Начать новый проект? Несохранённые изменения пропадут.', { ok: 'Начать новый' })) return;
+  if (dirty && (proj.words.length || (proj.lyrics || '').trim()) && !await Dialogs.confirm('Начать новый проект? Несохранённые изменения пропадут.', { ok: 'Начать новый' })) return;
   const old = proj, np = newProject();
   if (keepStyle) {
     np.style = JSON.parse(JSON.stringify(old.style)); Object.assign(np.style, { start: 0, end: 0, title: '', hook: '' }); np.style.intro.title = '';
@@ -1152,7 +1186,7 @@ function timingLines() { const L = []; proj.words.forEach(w => { const l = L[L.l
 async function exportTimings(kind) {
   if (!proj.words.length) return toast('Сначала синхронизируйте слова');
   const L = timingLines(), p2 = n => String(n).padStart(2, '0'), base = (proj.audioName || 'lyrics').replace(/\.[^.]+$/, ''); let out = '';
-  if (kind === 'lrc') { out = L.map(l => `[${p2(Math.floor(l.t / 60))}:${(l.t % 60).toFixed(2).padStart(5, '0')}]${l.text}`).join('\n') + '\n'; }
+  if (kind === 'lrc') { out = L.map(l => { const cs = Math.round(Math.max(0, l.t) * 100); return `[${p2(Math.floor(cs / 6000))}:${((cs % 6000) / 100).toFixed(2).padStart(5, '0')}]${l.text}`; }).join('\n') + '\n'; } // 59,996 с → [01:00.00], не [00:60.00]
   else {
     // субтитры идут по времени готового ролика: от начала отрезка и без вырезанных проигрышей
     const [a, b] = effRange(), cuts = activeCuts(a, b), vt = t => Math.max(0, s2o(Math.min(Math.max(t, a), b), cuts) - s2o(a, cuts)), f = t => { const ms = Math.round(t * 1000); return `${p2(Math.floor(ms / 3600000))}:${p2(Math.floor(ms / 60000) % 60)}:${p2(Math.floor(ms / 1000) % 60)},${String(ms % 1000).padStart(3, '0')}`; };
@@ -1163,8 +1197,8 @@ async function exportTimings(kind) {
 }
 function parseTimings(text) {
   const L = [], sec = (h, m, s2) => (+h || 0) * 3600 + (+m || 0) * 60 + parseFloat(String(s2).replace(',', '.'));
-  if (/-->/.test(text)) { text.replace(/\r/g, '').split(/\n\s*\n/).forEach(bl => { const ls = bl.split('\n').filter(x => x.trim() !== ''), i = ls.findIndex(x => x.includes('-->')); if (i < 0) return; const m = ls[i].match(/(?:(\d+):)?(\d+):(\d+[.,]\d+)\s*-->\s*(?:(\d+):)?(\d+):(\d+[.,]\d+)/); if (!m) return; const tx = ls.slice(i + 1).join(' ').replace(/<[^>]+>|\{[^}]+\}/g, '').trim(); if (tx) L.push({ t: sec(m[1], m[2], m[3]), e: sec(m[4], m[5], m[6]), text: tx }); }); }
-  else { text.split(/\r?\n/).forEach(ln => { const ts = [...ln.matchAll(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g)], tx = ln.replace(/\[[^\]]*\]/g, '').replace(/<\d+:\d+(?:\.\d+)?>/g, '').trim(); if (!ts.length || !tx) return; ts.forEach(m => L.push({ t: +m[1] * 60 + parseFloat(m[2].replace(':', '.')), text: tx })); }); L.sort((x, y) => x.t - y.t); }
+  if (/-->/.test(text)) { text.replace(/\r/g, '').split(/\n\s*\n/).forEach(bl => { const ls = bl.split('\n').filter(x => x.trim() !== ''), i = ls.findIndex(x => x.includes('-->')); if (i < 0) return; const m = ls[i].match(/(?:(\d+):)?(\d+):(\d+(?:[.,]\d+)?)\s*-->\s*(?:(\d+):)?(\d+):(\d+(?:[.,]\d+)?)/); if (!m) return; const tx = ls.slice(i + 1).join(' ').replace(/<[^>]+>|\{[^}]+\}/g, '').trim(); if (tx) L.push({ t: sec(m[1], m[2], m[3]), e: sec(m[4], m[5], m[6]), text: tx }); }); L.sort((x, y) => x.t - y.t); } // субтитры бывают не по порядку
+  else { text.split(/\r?\n/).forEach(ln => { const ts = [...ln.matchAll(/\[(?:(\d+):(?=\d+:\d+\.))?(\d+):(\d+(?:[.:]\d+)?)\]/g)], tx = ln.replace(/\[[^\]]*\]/g, '').replace(/<\d+:\d+(?:\.\d+)?>/g, '').trim(); if (!ts.length || !tx) return; ts.forEach(m => L.push({ t: (+m[1] || 0) * 3600 + +m[2] * 60 + parseFloat(m[3].replace(':', '.')), text: tx })); }); L.sort((x, y) => x.t - y.t); }
   return L;
 }
 async function importTimings(text, name) {
@@ -1173,6 +1207,8 @@ async function importTimings(text, name) {
   const words = [];
   L.forEach((l, i) => { const ws = l.text.split(/\s+/).filter(Boolean), next = L[i + 1] ? L[i + 1].t : 1e9, end = Math.max(l.t + .3, Math.min(l.e != null ? l.e : 1e9, next - .05, l.t + Math.max(1.2, ws.length * .55))), total = ws.reduce((a, w) => a + [...w].length + 1, 0); let acc = 0;
     ws.forEach(w => { const d = ([...w].length + 1) / total * (end - l.t); words.push({ w, t: +(l.t + acc).toFixed(2), e: +(l.t + acc + d * .9).toFixed(2), line: i }); acc += d; }); });
+  // строки, начавшиеся почти одновременно, не должны перепутать порядок слов
+  for (let k = 1; k < words.length; k++) if (words[k].t <= words[k - 1].t) { words[k].t = +(words[k - 1].t + .01).toFixed(2); words[k].e = Math.max(words[k].e, +(words[k].t + .05).toFixed(2)); }
   proj.lyrics = L.map(l => l.text).join('\n'); $('#lyrics').value = proj.lyrics; proj.words = words; markAdlibs(proj.words);
   if (!proj.duration) proj.duration = words[words.length - 1].e + 2;
   if (!beatInfo && audioData) analyzeBeats(); if (proj.style.trim.auto) autoTrim(true); else autoRange(); autoScenes();
@@ -1313,7 +1349,7 @@ $('#xGo').onclick = async () => {
 let queue = [];
 function renderQueue() {
   $('#xQn').textContent = queue.length ? `(${queue.length})` : '';
-  $('#xQList').innerHTML = queue.map((q, i) => `<div class="q ${q.state || ''}"><span>${i + 1}. ${q.format} · ${q.o.draft ? 'черновик' : q.o.res + 'p'} · ${q.o.fps} к/с · ${EXT_LABEL[q.o.container]}${q.msg ? ' — ' + esc(q.msg) : ''}</span><button class="small ghost" data-i="${i}">✕</button></div>`).join('');
+  $('#xQList').innerHTML = queue.map((q, i) => `<div class="q ${q.state || ''}"><span>${i + 1}. ${q.format} · ${q.o.draft ? 'черновик' : q.o.res + 'p'} · ${q.o.fps} к/с · ${EXT_LABEL[q.o.container]}${q.msg ? ' — ' + esc(T(q.msg)) : ''}</span><button class="small ghost" data-i="${i}">✕</button></div>`).join('');
   $$('#xQList button').forEach(b => b.onclick = () => { if (exporting) return; queue.splice(+b.dataset.i, 1); renderQueue(); });
 }
 $('#xQAdd').onclick = () => { queue.push({ o: exportOpts(), format: proj.style.format }); renderQueue(); };
@@ -1386,7 +1422,7 @@ $('#bmGo').onclick = async () => {
   const todo = batch.filter(b => b.state !== 'done'); if (!todo.length) return toast('Нет треков для обработки');
   const formats = $$('.bmF').filter(x => x.checked).map(x => x.value); if (!formats.length) return toast('Выберите хотя бы один формат');
   const dir = await api.pickFolder(); if (!dir) return;
-  const sep = dir.includes('\\') ? '\\' : '/', saved = JSON.stringify(proj), savedPath = projPath, st = $('#bmStatus');
+  const sep = dir.includes('\\') ? '\\' : '/', saved = JSON.stringify(proj), savedPath = projPath, savedDirty = dirty, st = $('#bmStatus');
   batchRunning = true; batchStop = false; $('#bmGo').disabled = true; $('#bmStop').hidden = false; $('#bmStop').disabled = false; let ok = 0;
   for (const b of todo) {
     if (batchStop) break; b.state = 'run'; b.msg = 'синхронизация…'; renderBatch();
@@ -1412,7 +1448,7 @@ $('#bmGo').onclick = async () => {
     renderBatch();
   }
   st.className = 'status ok'; st.textContent = `Готово ${ok} из ${todo.length}. Видео и проекты — в выбранной папке.`;
-  applyProject(JSON.parse(saved), savedPath); await afterLoad();
+  applyProject(JSON.parse(saved), savedPath); await afterLoad(); dirty = savedDirty; updTitle(); // несохранённый проект остаётся несохранённым (иначе при закрытии автосохранение стиралось)
   batchRunning = false; $('#bmGo').disabled = false; $('#bmStop').hidden = true;
 };
 
@@ -1516,7 +1552,7 @@ $('#wmOk').onclick = $('#wmClose').onclick = () => { $('#wordMenu').hidden = tru
 Timeline.init($('#timeline'), {
   proj: () => proj, env: () => beatInfo, beats: () => beatInfo, time: () => curT(), seek: t => seekTo(t),
   range: () => { const [a, b] = effRange(); return [a, b || 10]; },
-  changed: (kind, live) => { if (kind === 'scenes') { renderStrip(); renderScene(); scheduleRebuild(250); } else if (kind === 'scenes-done') { scheduleRebuild(60); } else scheduleRebuild(live ? 400 : 120); },
+  changed: (kind, live) => { if (kind === 'scenes') { renderStrip(); renderScene(); scheduleRebuild(250); } else if (kind === 'scenes-done') { proj.scenes.forEach(fixRefs); renderScene(); scheduleRebuild(60); } else scheduleRebuild(live ? 400 : 120); },
   select: i => { sel = i; renderStrip(); renderScene(); }, selected: () => sel, playing: () => playing, wordMenu: openWordMenu, cuts: () => proj.style.cuts || [], snap: () => $('#snapBeats').checked
 });
 $('#tlFit').onclick = () => Timeline.fit();
@@ -1534,14 +1570,15 @@ $('#tlFit').onclick = () => Timeline.fit();
   if (LANG === 'en') $('#lyrics').placeholder = 'paste the lyrics here\none line = one line on screen\n…';
   renderAll(); histReset(); dirty = false; updTitle(); rebuildPreview(); loop();
   window.__ls = { get proj() { return proj; }, set proj(v) { proj = v; }, loadAudio, renderAll, rebuildPreview, buildSpec, engineHTML, autoScenes, autoRange, seek, seekTo, ensureSpectrum, analyzeBeats, get beatInfo() { return beatInfo; }, histGo, applyProject, afterLoad, currentPreset, splitScene, touch, scheduleRebuild };
+  Object.defineProperties(window.__ls, { sel: { get: () => sel }, msel: { get: () => [...msel] }, histLen: { value: () => hist.length }, histPos: { value: () => hpos }, histReset: { value: histReset }, histCommit: { value: histCommit }, projJSON: { value: projJSON }, parseTimings: { value: parseTimings }, importTimings: { value: importTimings }, exportTimings: { value: exportTimings }, mergePrev: { value: mergePrev }, mergeNext: { value: mergeNext }, copyLook: { value: copyLook }, pasteLook: { value: pasteLook }, newFrom: { value: newFrom }, openProject: { value: openProject }, saveProject: { value: saveProject }, autoTrim: { value: autoTrim }, audioSrc: { value: () => audio.getAttribute('src') || '' }, hasAudioData: { value: () => !!audioData } });
   let reloaded = null; try { reloaded = JSON.parse(sessionStorage.getItem('ls-reload') || 'null'); sessionStorage.removeItem('ls-reload'); } catch (e) {}
   if (reloaded && reloaded.proj) { applyProject(reloaded.proj, reloaded.path || null); await afterLoad(); dirty = !!reloaded.dirty; updTitle(); return; }
   let crash = null; try { crash = await api.lastCrash(); } catch (e) {}
   try {
     const a = await api.loadAutosave();
     if (crash) { const p = a && a.json ? JSON.parse(a.json) : null, hasP = p && ((p.words && p.words.length) || p.lyrics);
-      banner(`Прошлый запуск завершился аварийно${crash.reason ? ' (' + esc(crash.reason) + ')' : ''}.` + (hasP ? ` Есть автосохранение${p.audioName ? ' «' + esc(p.audioName) + '»' : ''}.` : ' Отправьте отчёт — это поможет найти причину.'),
-        [...(hasP ? [['Восстановить проект', async () => { applyProject(p, null); await afterLoad(); dirty = true; updTitle(); toast('Проект восстановлен'); }, 'primary']] : []),
+      banner(esc(T(`Прошлый запуск завершился аварийно${crash.reason ? ' (' + crash.reason + ')' : ''}.`)) + ' ' + esc(T(hasP ? `Есть автосохранение${p.audioName ? ' «' + p.audioName + '»' : ''}.` : 'Отправьте отчёт — это поможет найти причину.')), // два предложения переводятся по отдельности
+        [...(hasP ? [['Восстановить проект', async () => { hideBanner(); applyProject(p, null); await afterLoad(); dirty = true; updTitle(); toast('Проект восстановлен'); }, 'primary']] : []),
          ['Скопировать отчёт', () => { api.copyReport('аварийное завершение прошлого запуска' + (crash.version ? ' (' + crash.version + ')' : '') + (crash.reason ? ': ' + crash.reason : '')).then(() => toast('Отчёт скопирован — вставьте его в сообщение (Ctrl+V)', 4000)); }, hasP ? '' : 'primary'],
          ['Проверка системы', () => { openSelfTest(); }, ''], ['Закрыть', () => { hideBanner(); }, 'ghost']]);
     } else
