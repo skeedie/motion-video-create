@@ -238,6 +238,12 @@ WebM · прозрачный ⇒ WebM · transparent
 черновик: 360p, 15 кадров/с — быстро проверить ролик ⇒ draft: 360p, 15 fps — quick check
 Сохранить видео… ⇒ Save video…
 Отмена ⇒ Cancel
+Заменить ⇒ Replace
+Пересобрать ⇒ Rebuild
+Указать файл… ⇒ Locate file…
+Не сейчас ⇒ Not now
+Открыть ⇒ Open
+Начать новый ⇒ Start new
 Показать в папке ⇒ Show in folder
 Очередь: несколько версий за раз ⇒ Queue: several versions at once
 + текущие настройки ⇒ + current settings
