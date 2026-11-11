@@ -1101,7 +1101,7 @@ function selfTestSpec() {
   return spec;
 }
 // контрольный ролик для автоматической проверки экспорта
-window.__ciJob = fmt => { const keep = proj.style.format; proj.style.format = fmt; let spec; try { spec = selfTestSpec(); } finally { proj.style.format = keep; } const [W, H] = FMT[fmt]; return { html: engineHTML(spec, 'app://app/'), W, H }; };
+window.__ciJob = (fmt, alpha) => { const keep = proj.style.format; proj.style.format = fmt; let spec; try { spec = selfTestSpec(); if (alpha) spec.transparent = true; } finally { proj.style.format = keep; } const [W, H] = FMT[fmt]; return { html: engineHTML(spec, 'app://app/'), W, H }; };
 async function runSelfTest() {
   if (stBusy) return; stBusy = true; $('#stRun').disabled = true; $('#stBar').style.width = '0'; const st = $('#stStatus'); st.className = 'status'; st.textContent = 'Проверяю компоненты…';
   stLines = [{ group: 'Проверка', name: 'Компоненты', level: 'run', text: 'проверяю…' }]; stRender();

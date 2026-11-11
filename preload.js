@@ -5,7 +5,8 @@ const withProgress = (ch, fn) => async (arg, onProgress) => {
   ipcRenderer.on(ch, h);
   try { return await fn(arg); } finally { ipcRenderer.removeListener(ch, h); }
 };
-const inv = (ch, ...a) => ipcRenderer.invoke(ch, ...a);
+// без служебного «Error invoking remote method 'exportVideo': Error: » — пользователь видит только причину
+const inv = (ch, ...a) => ipcRenderer.invoke(ch, ...a).catch(e => { throw new Error(String(e && e.message || e).replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '')); });
 contextBridge.exposeInMainWorld('api', {
   pickAudio: () => inv('pickAudio'),
   pickImage: () => inv('pickImage'),

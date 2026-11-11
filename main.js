@@ -9,9 +9,10 @@ const { spawn } = cp;
 const A = require('./align');
 
 // вторая копия программы не запускается: она бы затирала автосохранение первой и оставляла ложный «аварийный» флаг
-const projArg = argv => (argv || []).slice(1).find(a => /\.(lsp|lspz)$/i.test(a) && fs.existsSync(a)) || null;
+// путь от второй копии считается от её рабочей папки (запуск «LyricStudio.exe проект.lspz» из папки проекта)
+const projArg = (argv, cwd) => { const a = (argv || []).slice(1).find(x => /\.(lsp|lspz)$/i.test(x) && fs.existsSync(path.resolve(cwd || process.cwd(), x))); return a ? path.resolve(cwd || process.cwd(), a) : null; };
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
-app.on('second-instance', (e, argv) => { if (!mainWin || mainWin.isDestroyed()) return; if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); const p = projArg(argv); if (p) mainWin.webContents.executeJavaScript(`window.__openPath&&window.__openPath(${JSON.stringify(p)})`).catch(() => {}); });
+app.on('second-instance', (e, argv, cwd) => { if (!mainWin || mainWin.isDestroyed()) return; if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); const p = projArg(argv, cwd); if (p) mainWin.webContents.executeJavaScript(`window.__openPath&&window.__openPath(${JSON.stringify(p)})`).catch(() => {}); });
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 
 const REPO = 'skeedie/motion-video-create';
@@ -103,9 +104,88 @@ async function ciRun(dir) {
         if (d > 8) rep.errors.push(`кадр готового ролика отличается от контрольного (${d.toFixed(1)})`); if (!/bt709/.test(rep.probe)) rep.errors.push('в ролике нет метки цвета BT.709: ' + rep.probe); }
       else rep.errors.push('экспорт не удался: ' + JSON.stringify(r));
     } catch (e) { rep.errors.push('export: ' + (e.stack || e.message)); }
+    await ciEdge(dir, rep).catch(e => rep.errors.push('краевые случаи: ' + (e.stack || e.message)));
   } catch (e) { rep.errors.push(e.stack || e.message); }
   try { fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(rep, null, 1)); } catch (e) {}
   markClean(); killChildren(); app.exit(rep.errors.length ? 1 : 0);
+}
+
+// Краевые случаи экспорта: папка и трек с кириллицей, пробелом и апострофом (в том числе временная папка), вырезки, громкость,
+// MOV с прозрачностью, WebM, GIF, стикер, 60 к/с и 1 с, длинный ролик, файл занят, видео поверх трека, нет трека, отмена, запуск установщика.
+async function ciEdge(dir, rep) {
+  const sleep = ms => new Promise(r => setTimeout(r, ms)), E = rep.edge = {}, err = (k, m) => rep.errors.push(`${k}: ${m}`), win = process.platform === 'win32';
+  const K = path.join(dir, "Тест О'Нил проект"), TMP = path.join(K, 'временные файлы'), keepEnv = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+  fs.mkdirSync(TMP, { recursive: true }); process.env.TEMP = process.env.TMP = process.env.TMPDIR = TMP;
+  const leftovers = () => fs.readdirSync(TMP).filter(d => /^lyric-/.test(d)), ffKids = () => [...CHILDREN].filter(p => /ffmpeg/i.test(p.spawnfile || '')).length;
+  const info = f => runFFOut(['-hide_banner', '-i', f, '-f', 'null', '-']), durOf = s => { const m = s.match(/Duration: (\d+):(\d+):([\d.]+)/); return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : 0; };
+  const lufsOf = async f => { const s = await runFFOut(['-hide_banner', '-nostats', '-i', f, '-map', '0:a', '-af', 'ebur128', '-f', 'null', '-']); const m = s.match(/I:\s+(-?[\d.]+) LUFS/g); return m ? +m.pop().match(/-?[\d.]+/)[0] : null; };
+  const alphaShare = png => { const b = nativeImage.createFromBuffer(png).toBitmap(); let t = 0; for (let i = 3; i < b.length; i += 4) if (b[i] < 250) t++; return t / (b.length / 4); };
+  const job = JSON.parse(JSON.stringify(await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16')`))), jobA = await mainWin.webContents.executeJavaScript(`window.__ciJob('9:16', true)`);
+  const track = path.join(K, "трек «О'Нил» 1.flac"), longTrack = path.join(K, 'длинный трек.mp3'), sfxWav = path.join(TMP, 'sfx.wav');
+  await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=440:d=12', '-ac', '1', '-ar', '48000', track]);
+  await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=330:d=200', '-ac', '2', '-ar', '44100', '-b:a', '128k', longTrack]);
+  await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=900:d=4,volume=0.5', '-ac', '2', '-ar', '44100', sfxWav]);
+  const sfx = { data: fs.readFileSync(sfxWav), vol: .7 };
+  const ex = (o, ev) => exportVideoImpl(ev || { sender: mainWin.webContents }, Object.assign({}, job, { width: 720, fps: 30, cuts: [], fade: .5, fadeIn: .2, fadeOut: .5, fadeCurve: 'smooth', container: 'mp4', name: 'ci', audioPath: track }, o));
+  const step = async (k, fn) => { const t0 = Date.now(); E[k] = {}; try { await fn(E[k]); } catch (e) { err(k, e.stack || e.message); } E[k].sec = +((Date.now() - t0) / 1000).toFixed(1); };
+  // 1. кириллица + пробел + апостроф в пути трека, видео и временной папки; вырезка в середине; громкость; звуковые эффекты
+  await step('kir-cuts-loud-sfx', async R => {
+    const out = path.join(K, "видео О'Нил итог.mp4"), r = await ex({ start: 1, end: 7, outDur: 4, cuts: [{ a: 2.5, b: 4.5 }], loud: true, sfx, outPath: out });
+    if (!r || !r.ok) throw new Error('не удался: ' + JSON.stringify(r));
+    const s = await info(out); R.dur = durOf(s); R.lufs = await lufsOf(out); R.left = leftovers();
+    if (Math.abs(R.dur - 4) > 0.15) err('kir-cuts-loud-sfx', `длина ${R.dur} вместо 4`); if (!/Audio:/.test(s)) err('kir-cuts-loud-sfx', 'нет звука');
+    if (R.lufs == null || R.lufs < -16 || R.lufs > -12) err('kir-cuts-loud-sfx', `громкость ${R.lufs} LUFS вместо −14`); if (R.left.length) err('kir-cuts-loud-sfx', 'не удалены временные папки: ' + R.left);
+  });
+  // 2. MOV ProRes 4444 с прозрачностью: альфа на месте
+  await step('mov-alpha', async R => {
+    const out = path.join(K, 'альфа.mov'), r = await ex({ html: jobA.html, container: 'mov', start: 0, end: 2, outDur: 2, outPath: out }); if (!r || !r.ok) throw new Error('не удался: ' + JSON.stringify(r));
+    const s = await info(out); R.stream = (s.match(/Stream #0:0.*/) || [''])[0]; if (!/prores/.test(R.stream) || !/yuva444/.test(R.stream)) err('mov-alpha', 'не ProRes 4444 с альфой: ' + R.stream); if (!/Audio:/.test(s)) err('mov-alpha', 'нет звука');
+    const png = path.join(dir, 'edge-mov-alpha-1.0.png'); await runFF(['-v', 'error', '-y', '-ss', '1', '-i', out, '-frames:v', '1', '-pix_fmt', 'rgba', png]); R.transparent = +alphaShare(fs.readFileSync(png)).toFixed(3);
+    if (!(R.transparent > 0.05 && R.transparent < 0.995)) err('mov-alpha', `доля прозрачных точек ${R.transparent}`);
+  });
+  // 3. прозрачный PNG-кадр
+  await step('png-alpha', async R => { JOB_HTML = jobA.html; const p = await grabFrame(jobA, 540, 960, .9, true); fs.writeFileSync(path.join(dir, 'edge-png-alpha.png'), p.data); R.transparent = +alphaShare(p.data).toFixed(3); if (!(R.transparent > 0.05 && R.transparent < 0.995)) err('png-alpha', `доля прозрачных точек ${R.transparent}`); });
+  // 4. WebM (VP9 + Opus), GIF, стикер (имя «.sticker» из очереди должно стать .webm)
+  await step('webm', async R => { const out = path.join(K, 'ролик.webm'), r = await ex({ html: jobA.html, container: 'webm', start: 0, end: 2, outDur: 2, width: 540, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); const s = await info(out); R.vp9 = /vp9/.test(s); R.opus = /opus/.test(s); if (!R.vp9 || !R.opus) err('webm', s.slice(0, 300)); });
+  await step('gif', async R => { const out = path.join(K, 'анимация.gif'), r = await ex({ container: 'gif', start: 0, end: 2, outDur: 2, width: 540, fps: 15, audioPath: '', outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); const s = await info(out); R.gif = /Video: gif/.test(s); R.dur = durOf(s); if (!R.gif) err('gif', s.slice(0, 300)); });
+  await step('sticker', async R => { const r = await ex({ html: jobA.html, container: 'sticker', width: 512, start: 0, end: 3, vStart: .5, outDur: 2.5, audioPath: '', outPath: path.join(K, 'стикер.sticker') }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); R.path = path.basename(r.path); R.size = fs.statSync(r.path).size; if (!/\.webm$/.test(r.path) || R.size > 256 * 1024) err('sticker', `${R.path} ${R.size} байт`); });
+  // 5. 60 к/с и ролик в 1 секунду, затухание длиннее ролика
+  await step('fps60-1s', async R => { const out = path.join(K, '60 кадров.mp4'), r = await ex({ fps: 60, start: 0, end: 1, outDur: 1, fadeOut: 5, fadeIn: 3, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r));
+    const s = await runFFOut(['-hide_banner', '-i', out, '-map', '0:v', '-f', 'null', '-']), fr = s.match(/frame=\s*(\d+)/g); R.frames = fr ? +fr.pop().match(/\d+/)[0] : 0; R.fps60 = /60 fps/.test(s); if (Math.abs(R.frames - 60) > 1 || !R.fps60) err('fps60-1s', `кадров ${R.frames}, 60 fps: ${R.fps60}`); });
+  await step('2160-24fps-mid', async R => { const out = path.join(K, '4K 24.mp4'), r = await ex({ width: 2160, fps: 24, start: 5, end: 6.5, outDur: 1.5, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r));
+    const s = await info(out); R.stream = (s.match(/Stream #0:0.*/) || [''])[0]; R.dur = durOf(s); if (!/2160x3840/.test(R.stream) || !/24 fps/.test(R.stream) || Math.abs(R.dur - 1.5) > 0.1) err('2160-24fps-mid', `${R.stream} ${R.dur}`); });
+  // 6. трек короче отрезка: звук добивается тишиной, ролик нужной длины
+  await step('short-track', async R => { const out = path.join(K, 'короткий трек.mp4'), r = await ex({ start: 10, end: 14, outDur: 4, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); const s = await runFFOut(['-hide_banner', '-i', out, '-map', '0:a', '-f', 'null', '-']), t = s.match(/time=(\d+):(\d+):([\d.]+)/g); R.audioSec = t ? durOf('Duration: ' + t.pop().slice(5)) : 0; if (R.audioSec < 3.8) err('short-track', `звук ${R.audioSec} с вместо 4`); });
+  // 7. ошибки, которые должны приходить сразу и по-русски
+  const mustFail = async (k, o, re) => step(k, async R => { const t0 = Date.now(); let msg = ''; try { const r = await ex(o); msg = 'не отказал: ' + JSON.stringify(r); } catch (e) { msg = e.message; } R.msg = msg; R.sec = (Date.now() - t0) / 1000; if (!re.test(msg)) err(k, 'сообщение: ' + msg); if (R.sec > 15) err(k, `ошибка пришла через ${R.sec} с`); });
+  await mustFail('empty-range', { start: 5, end: 5, outDur: 0, outPath: path.join(K, 'пусто.mp4') }, /отрезок ролика пустой/);
+  await mustFail('no-track', { start: 0, end: 2, outDur: 2, audioPath: path.join(K, 'нет такого.mp3'), outPath: path.join(K, 'без трека.mp4') }, /не найден файл трека/);
+  { const tr4 = path.join(K, "трек О'Нил.mp4"); await runFF(['-v', 'error', '-y', '-i', track, '-c:a', 'aac', tr4]); const sz = fs.statSync(tr4).size;
+    await mustFail('over-track', { start: 0, end: 2, outDur: 2, audioPath: tr4, outPath: path.join(K, win ? "ТРЕК О'НИЛ.MP4" : "трек О'Нил.mp4") }, /поверх файла трека/);
+    if (!fs.existsSync(tr4) || fs.statSync(tr4).size !== sz) err('over-track', 'трек испорчен или удалён'); }
+  if (win) { const lk = path.join(dir, 'locked.mp4'); fs.writeFileSync(lk, 'old'); const ps = spawn('powershell.exe', ['-NoProfile', '-Command', `$f=[IO.File]::Open('${lk}','Open','ReadWrite','None'); Start-Sleep 40`], { windowsHide: true });
+    let locked = false; for (let i = 0; i < 60 && !locked; i++) { try { fs.closeSync(fs.openSync(lk, 'r+')); await sleep(250); } catch (e) { locked = true; } }
+    if (!locked) err('locked', 'не удалось занять файл для проверки'); else await mustFail('locked', { start: 0, end: 2, outDur: 2, outPath: lk }, /открыт в другой программе/);
+    try { ps.kill(); } catch (e) {} }
+  // 8. отмена во время рендера: процессы убиты, временные файлы удалены, прежний файл с тем же именем цел
+  await step('cancel-render', async R => { const out = path.join(K, 'отмена.mp4'); fs.writeFileSync(out, 'old'); let tC = 0;
+    const r = await ex({ start: 0, end: 20, outDur: 20, outPath: out }, { sender: { send: (ch, d) => { if (d && d.frac > 0.03 && !tC) { tC = Date.now(); cancelFlag = true; } } } });
+    R.result = r; R.afterCancel = tC ? (Date.now() - tC) / 1000 : null; await sleep(500); R.left = leftovers(); R.ff = ffKids(); R.old = fs.existsSync(out) && fs.readFileSync(out, 'utf8') === 'old';
+    if (!r || !r.cancelled) err('cancel-render', 'не отменился: ' + JSON.stringify(r)); if (R.left.length || R.ff || !R.old) err('cancel-render', JSON.stringify(R)); });
+  // 9. отмена во время сборки (кодирование WebM): ffmpeg убит, недоделанный файл удалён
+  await step('cancel-final', async R => { const out = path.join(K, 'отмена сборки.webm'); let tC = 0, t97 = 0;
+    const r = await ex({ html: jobA.html, container: 'webm', width: 1080, start: 0, end: 8, outDur: 8, outPath: out }, { sender: { send: (ch, d) => { if (d && d.frac >= 0.97 && !t97) { t97 = Date.now(); setTimeout(() => { tC = Date.now(); cancelFlag = true; }, 600); } } } });
+    R.result = r; R.afterCancel = tC ? (Date.now() - tC) / 1000 : null; await sleep(500); R.left = leftovers(); R.ff = ffKids(); R.exists = fs.existsSync(out);
+    if (!tC) R.note = 'сборка закончилась раньше отмены'; else if (!r || !r.cancelled || R.afterCancel > 3 || R.exists) err('cancel-final', JSON.stringify(R)); if (R.left.length || R.ff) err('cancel-final', JSON.stringify(R)); });
+  // 10. длинный ролик (больше 3 минут) из середины трека, черновик
+  await step('long-draft', async R => { const out = path.join(K, 'длинный.mp4'), r = await ex({ draft: true, width: 360, fps: 15, start: 10, end: 196, outDur: 185, cuts: [{ a: 100, b: 101 }], audioPath: longTrack, loud: true, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); const s = await info(out); R.dur = durOf(s); if (Math.abs(R.dur - 185) > 0.3) err('long-draft', `длина ${R.dur} вместо 185`); });
+  // 11. запуск установщика после выхода: путь с кириллицей и пробелом
+  if (win) await step('update-launch', async R => { const f = path.join(K, "LyricStudio-Setup-тест О'Нил.cmd"), mk = path.join(K, 'marker.txt');
+    fs.writeFileSync(f, '@echo ok> "%~dp0marker.txt"\r\nexit\r\n'); startLater(f, 2); for (let i = 0; i < 50 && !fs.existsSync(mk); i++) await sleep(200); R.started = fs.existsSync(mk);
+    if (!R.started) err('update-launch', 'установщик не запустился бы'); });
+  rep.edgeLeft = leftovers(); if (rep.edgeLeft.length) rep.errors.push('после всех проверок остались временные папки: ' + rep.edgeLeft);
+  Object.assign(process.env, keepEnv); for (const k in keepEnv) if (keepEnv[k] === undefined) delete process.env[k];
+  try { fs.rmSync(K, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); fs.rmSync(path.join(dir, 'locked.mp4'), { force: true }); } catch (e) {}
 }
 
 // флаг «программа работает»: если при следующем запуске он остался — прошлый сеанс завершился аварийно
@@ -135,7 +215,12 @@ app.whenReady().then(() => {
 function cleanDisk() {
   const old = (f, days) => { try { return Date.now() - fs.statSync(f).mtimeMs > days * 864e5; } catch (e) { return false; } }, rm = f => { try { fs.rmSync(f, { recursive: true, force: true }); return 1; } catch (e) { return 0; } };
   let n = 0;
-  try { for (const d of fs.readdirSync(UD('bundles'))) { const f = UD('bundles', d); if (old(f, 30)) n += rm(f); } } catch (e) {}
+  // трек распакованного проекта может быть нужен и без .lspz: автосохранение и недавние .lsp ссылаются прямо на папку bundles —
+  // такие папки не трогаем, иначе после уборки проект открывался без трека
+  const keep = new Set(), noteRefs = json => { try { const p = JSON.parse(json); for (const f of [p.audioPath, p.style && p.style.bgMedia && p.style.bgMedia.path]) { const rel = f ? path.relative(UD('bundles'), f) : ''; if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) keep.add(rel.split(/[\\/]/)[0].toLowerCase()); } } catch (e) {} };
+  try { noteRefs(fs.readFileSync(UD('autosave.lsp'), 'utf8')); } catch (e) {}
+  for (const r of readRecent()) if (/\.(lsp|json)$/i.test(r.path)) try { noteRefs(fs.readFileSync(r.path, 'utf8')); } catch (e) {}
+  try { for (const d of fs.readdirSync(UD('bundles'))) { const f = UD('bundles', d); if (!keep.has(d.toLowerCase()) && old(f, 30)) n += rm(f); } } catch (e) {}
   try { for (const d of fs.readdirSync(UD('beatcache'))) { const f = UD('beatcache', d); if (old(f, 90)) n += rm(f); } } catch (e) {}
   try { for (const d of fs.readdirSync(os.tmpdir())) { if (/^(lyric-|ls-selftest-|ls-test-)/.test(d) || /^LyricStudio-Setup-.*\.exe(\.part)?$/.test(d)) { const f = path.join(os.tmpdir(), d); if (old(f, 2)) n += rm(f); } } } catch (e) {}
   for (const d of ['giga-ctc', 'w2v-en', 'uvr', 'models2']) { try { for (const x of fs.readdirSync(UD(d))) if (x.endsWith('.part') && old(UD(d, x), 1)) n += rm(UD(d, x)); } catch (e) {} }
@@ -294,6 +379,11 @@ handle('checkUpdate', async () => {
   if (best && cmpVer(best.version, app.getVersion()) > 0) return best;
   return null;
 });
+// Запуск файла через несколько секунд, уже после выхода программы (установщик обновления). Строка команды передаётся cmd.exe
+// как есть (/s + windowsVerbatimArguments): Node экранировал кавычки как \", cmd этого не понимает, и установщик не запускался вовсе.
+function startLater(file, sec) {
+  spawn('cmd.exe', ['/d', '/s', '/c', `"ping 127.0.0.1 -n ${sec} > nul & start "" "${file}""`], { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref();
+}
 handle('installUpdate', async (ev, info) => {
   const progress = t => send(ev, 'progress:update', t);
   const portableExe = process.env.PORTABLE_EXECUTABLE_FILE;
@@ -308,7 +398,7 @@ handle('installUpdate', async (ev, info) => {
   log('запускаю установщик', dest);
   try { await Promise.race([mainWin.webContents.executeJavaScript('window.__beforeClose ? window.__beforeClose() : true'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
   // установщик стартует, когда эта программа уже полностью закрылась
-  spawn('cmd.exe', ['/d', '/c', `ping 127.0.0.1 -n 3 > nul & start "" "${dest}"`], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  startLater(dest, 3);
   setTimeout(() => { markClean(); killChildren(); app.exit(0); }, 300);
   return { installer: true };
 });
@@ -497,7 +587,8 @@ function audioGraph(job, dur, tail) {
   f.push(segs.length > 1 ? `${segs.map((_, i) => `[s${i}]`).join('')}concat=n=${segs.length}:v=0:a=1[cat]` : `[s0]anull[cat]`);
   const fi = Math.min(+job.fadeIn || 0, dur / 3), fo = Math.min(job.fadeOut != null ? +job.fadeOut : (job.fade || 0.4), dur / 3), fx = [];
   if (fi > 0) fx.push(`afade=t=in:st=0:d=${fi.toFixed(3)}:curve=${cv}`); if (fo > 0) fx.push(`afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}:curve=${cv}`);
-  f.push(`[cat]${fx.length ? fx.join(',') : 'anull'}[m]`);
+  // трек короче отрезка (замена трека, другой подсчёт длины mp3): тишина до конца ролика, иначе звук обрывался без затухания
+  f.push(`[cat]${[`apad=whole_dur=${dur.toFixed(3)}`, ...fx].join(',')}[m]`);
   // выравнивание громкости: общий сдвиг до −14 LUFS (без «дыхания» компрессора) и ограничитель пиков на случай тихого трека
   const gain = typeof job.gainDb === 'number' && Math.abs(job.gainDb) > 0.05 ? `volume=${job.gainDb.toFixed(2)}dB,alimiter=limit=0.84:level=false` : 'anull', last = tail || 'a';
   if (job.sfxPath) f.push(`[2:a]volume=${(+job.sfxVol || .7).toFixed(2)}${fo > 0 ? `,afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}` : ''}[s]`, `[m][s]amix=inputs=2:duration=first:normalize=0[mx]`, `[mx]${gain}[${last}]`);
@@ -517,7 +608,34 @@ async function measureLoudness(job, dur) {
   const args = ['-hide_banner', '-nostats', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-i', job.audioPath, ...(job.sfxPath ? ['-i', job.sfxPath] : []), '-filter_complex', audioGraph(Object.assign({}, job, { gainDb: null }), dur, 'pre') + ';[pre]loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json[o]', '-map', '[o]', '-t', dur.toFixed(3), '-f', 'null', '-'];
   const txt = await runFFOut(args), m = txt.match(/"input_i"\s*:\s*"(-?[\d.]+|-inf)"/); if (!m || m[1] === '-inf') return null; return +m[1];
 }
-const runFF = args => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let e = ''; p.stderr.on('data', d => e += d); p.on('error', rej); p.on('close', c => c === 0 ? res() : rej(new Error('ffmpeg: ' + e.slice(0, 500)))); });
+// Ошибки ffmpeg и файловой системы — понятным текстом; исходный текст ffmpeg остаётся в журнале (err.raw)
+function ffHuman(e) {
+  const s = String(e || ''), nf = /No such file or directory/.test(s) && ((s.match(/Error opening (?:input|output) file (.+?)\.?\s*$/m) || s.match(/^(?:\[[^\]]*\]\s*)?(.+?): No such file or directory/m) || [])[1] || '?');
+  if (/No space left|ENOSPC|There is not enough space/i.test(s)) return 'на диске закончилось место — освободите место и повторите экспорт';
+  if (/same as Input|cannot edit existing files in-place/i.test(s)) return 'нельзя сохранить видео поверх файла трека — выберите другое имя';
+  if (/Permission denied|Access is denied|Operation not permitted|EPERM|EACCES|EBUSY/i.test(s)) return 'нет доступа к файлу — возможно, он открыт в другой программе (плеере, редакторе) или папка защищена от записи. Закройте файл или выберите другую папку';
+  if (nf) return `не найден файл «${nf.trim().split(/[\\/]/).pop()}» — возможно, его переместили или удалили`;
+  if (/matches no streams|does not contain any stream|Stream map .* matches no/i.test(s)) return 'в файле трека нет звуковой дорожки — выберите другой трек';
+  if (/Invalid data found|moov atom not found|could not find codec parameters|Error while decoding|Invalid argument.*input/i.test(s)) return 'файл трека повреждён или его формат не поддерживается — сохраните трек в MP3 или WAV и выберите его заново';
+  if (/Unknown encoder|Encoder not found|encoder .* not found/i.test(s)) return 'в сборке ffmpeg нет нужного кодека — переустановите программу';
+  if (/Cannot allocate memory|out of memory|ENOMEM/i.test(s)) return 'не хватило памяти — закройте другие программы или выберите разрешение ниже';
+  if (/spawn .*ENOENT|spawn .*EACCES|spawn UNKNOWN/i.test(s)) return 'не запускается ffmpeg — переустановите программу или добавьте её папку в исключения антивируса';
+  const last = s.split(/\r?\n/).map(l => l.replace(/^\[[^\]]*\]\s*/, '').trim()).filter(Boolean).pop() || 'неизвестная ошибка';
+  return 'ffmpeg остановился с ошибкой: ' + last.slice(0, 200);
+}
+function fsHuman(e, file) {
+  const c = e && e.code, n = file ? `«${path.basename(file)}»` : '';
+  if (c === 'EBUSY' || c === 'EPERM' || c === 'EACCES') return `не удаётся записать файл ${n}: он открыт в другой программе (например, в плеере) или нет прав на запись в папку. Закройте файл или выберите другое имя или папку`;
+  if (c === 'ENOSPC') return 'на диске закончилось место — освободите место и повторите';
+  if (c === 'ENOENT') return `папка для файла ${n} не найдена — выберите другую папку`;
+  if (c === 'EROFS') return 'диск доступен только для чтения — выберите другую папку';
+  return (e && e.message) || String(e);
+}
+// cancellable: ffmpeg завершается по кнопке «Отменить» (склейка длинного WebM или GIF идёт минутами)
+const runFF = (args, cancellable) => new Promise((res, rej) => { const p = spawn(FFMPEG, args, { windowsHide: true }); let e = '', tm = null; p.stderr.on('data', d => { e += d; if (e.length > 2e5) e = e.slice(-1e5); });
+  if (cancellable) tm = setInterval(() => { if (cancelFlag) try { p.kill(); } catch (x) {} }, 150);
+  p.on('error', x => { clearInterval(tm); const er = new Error(ffHuman(x && x.message)); er.raw = String(x && x.message); rej(er); });
+  p.on('close', c => { clearInterval(tm); if (c === 0) return res(); if (cancellable && cancelFlag) return rej(new Error('__cancel')); const er = new Error(ffHuman(e)); er.raw = e.slice(-1500); rej(er); }); });
 // Окно рендера. resizable:false обязателен: окну с рамкой изменения размера Windows не даёт стать больше экрана,
 // и ролик 1080×1920 на мониторе 1080p выходил обрезанным и растянутым.
 async function openEngine(outW, outH, zoom, alpha) {
@@ -556,7 +674,7 @@ async function cdpCapture(win, alpha) {
 const frameAt = (win, t) => win.webContents.executeJavaScript(`(window.seekAsync||((t)=>Promise.resolve(seek(t))))(${t.toFixed(5)}).then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))`);
 async function renderSegment(job, k0, k1, file, dims, onFrame) {
   const { outW, outH, zoom } = dims, alpha = job.container === 'mov' || job.container === 'webm' || job.container === 'sticker', q = job.draft ? 70 : 92;
-  const win = await openEngine(outW, outH, zoom, alpha); let ff = null, ffErr = '', done = null;
+  const win = await openEngine(outW, outH, zoom, alpha); let ff = null, ffErr = '', done = null, ffClosed = false;
   try {
     for (let i = k0; i < k1; i++) {
       if (cancelFlag) throw new Error('__cancel');
@@ -565,15 +683,18 @@ async function renderSegment(job, k0, k1, file, dims, onFrame) {
       if (!ff) {
         const sz = img.getSize(); if (!sz.width || !sz.height) throw new Error('пустой кадр при захвате окна');
         ff = spawn(FFMPEG, segArgs(job, sz.width, sz.height, outW, outH, file), { windowsHide: true }); ff.stderr.on('data', d => ffErr += d); ff.stdin.on('error', () => {});
-        done = new Promise(r => ff.on('close', r));
+        done = new Promise(r => { ff.on('close', c => { ffClosed = true; r(c); }); ff.on('error', x => { ffErr += '\n' + (x && x.message); ffClosed = true; r(-1); }); });
       }
-      if (ff.exitCode !== null) throw new Error('ffmpeg: ' + (ffErr.slice(0, 500) || 'остановился'));
+      const ffFail = () => { const er = new Error(ffHuman(ffErr || 'остановился')); er.raw = ffErr.slice(-1500); return er; };
+      if (ffClosed || ff.exitCode !== null) throw ffFail();
       const buf = alpha ? img.toBitmap() : img.toJPEG(q);
-      if (!ff.stdin.write(buf)) await new Promise(r => ff.stdin.once('drain', r));
+      // ffmpeg мог упасть (кончилось место) при полном канале: 'drain' тогда не придёт никогда — ждём и завершения процесса, иначе экспорт висел вечно
+      if (!ff.stdin.write(buf)) await Promise.race([new Promise(r => ff.stdin.once('drain', r)), done]);
+      if (ffClosed || ff.exitCode !== null) throw ffFail();
       onFrame();
     }
-    if (ff) { ff.stdin.end(); const code = await done; if (code !== 0) throw new Error('ffmpeg: ' + ffErr.slice(0, 500)); }
-  } catch (e) { if (ff) { try { ff.stdin.destroy(); ff.kill(); } catch (x) {} } throw e; }
+    if (ff) { ff.stdin.end(); const code = await done; if (code !== 0) { const er = new Error(ffHuman(ffErr)); er.raw = ffErr.slice(-1500); throw er; } }
+  } catch (e) { if (ff) { try { ff.stdin.destroy(); ff.kill(); } catch (x) {} await Promise.race([done, new Promise(r => setTimeout(r, 3000))]); } throw e; }
   finally { win.destroy(); }
 }
 handle('cancelExport', () => { cancelFlag = true; });
@@ -691,38 +812,54 @@ const FNAME = { mp4: 'Видео MP4', mov: 'MOV с прозрачностью (
 async function exportVideoImpl(ev, job) {
   const cont = job.container || 'mp4', ext = cont === 'sticker' ? 'webm' : cont;
   let out = job.outPath;
+  // очередь и пакет сами составляют имя: у стикера оно выходило «.sticker» — расширение всегда по формату
+  if (out && path.extname(out).toLowerCase() !== '.' + ext) out = (/\.(mp4|mov|webm|gif|sticker)$/i.test(out) ? out.replace(/\.[^.\\/]+$/, '') : out) + '.' + ext;
+  // проверки до рендера: раньше ошибка всплывала только после того, как все кадры уже отрисованы
+  const outDur0 = job.outDur != null ? +job.outDur : (job.end - job.start), needAudio = cont !== 'gif' && cont !== 'sticker';
+  if (!(outDur0 > 0.04) || !(+job.width > 0)) throw new Error('отрезок ролика пустой — проверьте начало и конец ролика и вырезанные куски');
+  if (needAudio && (!job.audioPath || !fs.existsSync(job.audioPath))) throw new Error(`не найден файл трека${job.audioPath ? ' «' + path.basename(job.audioPath) + '»' : ''} — возможно, его переместили, переименовали или диск отключён. Откройте трек заново`);
   if (!out) { const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить видео'), defaultPath: (job.name || 'video') + '.' + ext, filters: [{ name: tr(FNAME[cont]), extensions: [ext] }] }); if (r.canceled || !r.filePath) return { ok: false }; out = r.filePath; }
+  const samePath = (a, b) => !!a && !!b && (process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
+  // видео поверх собственного трека: ffmpeg отказывался, а затем «неудачный» файл удалялся — пропадал сам трек
+  if (samePath(out, job.audioPath)) throw new Error('нельзя сохранить видео поверх файла трека — выберите другое имя');
+  // файл занят (открыт в плеере) или папка без прав — сообщаем сразу, а не после рендера
+  { const existed = fs.existsSync(out); try { fs.closeSync(fs.openSync(out, existed ? 'r+' : 'wx')); if (!existed) fs.unlinkSync(out); } catch (e) { throw new Error(fsHuman(e, out)); } }
   const progress = (frac, text) => send(ev, 'progress:export', { frac, text });
   cancelFlag = false;
   const fps = job.fps || 30, outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2, zoom = outW / job.W, n = Math.max(1, Math.round((job.outDur || (job.end - job.start)) * fps));
   const cores = os.cpus().length, maxW = outW * outH > 2.2e6 ? 2 : 4, workers = Math.max(1, Math.min(maxW, Math.floor(cores / 3), Math.ceil(n / 60), job.workers || 99));
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyric-')), t0 = Date.now(); let doneFrames = 0;
   if (job.gpu && ext === 'mp4') { const g = await detectGpu(); if (g) job.gpuEnc = g.enc; }
+  let tmp; try { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lyric-')); } catch (e) { throw new Error('временная папка недоступна: ' + fsHuman(e)); }
+  const t0 = Date.now(); let doneFrames = 0, wrote = false;
   // свободное место: видео с прозрачностью (ProRes 4444) занимает во временной папке гигабайты
   { const durS = n / fps, mbps = (cont === 'mov' || cont === 'webm' || cont === 'sticker') ? 30 * outW * outH / 2.07e6 * fps / 30 : 3 * outW * outH / 2.07e6, need = durS * mbps * 2 ** 20 * (cont === 'mov' ? 2.2 : 1.4) + 200 * 2 ** 20;
     for (const d of [...new Set([os.tmpdir(), path.dirname(out)])]) { let free = null; try { const st = fs.statfsSync(d); free = st.bavail * st.bsize; } catch (e) {} if (free != null && free < need) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} throw new Error(`не хватает места на диске (${d}): нужно примерно ${(need / 2 ** 30).toFixed(1)} ГБ, свободно ${(free / 2 ** 30).toFixed(1)} ГБ. Освободите место или выберите качество ниже`); } } }
-  if (job.sfx && job.sfx.data && cont !== 'gif' && cont !== 'sticker') { job.sfxPath = path.join(tmp, 'sfx.wav'); fs.writeFileSync(job.sfxPath, Buffer.from(job.sfx.data)); job.sfxVol = job.sfx.vol; }
   log(`экспорт: ${outW}x${outH} ${fps}fps ${ext}${job.draft ? ' черновик' : ''}, окон: ${workers}${job.gpuEnc ? ', ' + job.gpuEnc : ''}${job.sfxPath ? ', звуки' : ''} → ${out}`);
   JOB_HTML = job.html;
   try {
+    if (job.sfx && job.sfx.data && cont !== 'gif' && cont !== 'sticker') { job.sfxPath = path.join(tmp, 'sfx.wav'); fs.writeFileSync(job.sfxPath, Buffer.from(job.sfx.data)); job.sfxVol = job.sfx.vol; }
     progress(0, `Готовлю движок (${workers} ${workers === 1 ? 'окно' : 'окна'})…`);
     const segs = [], per = Math.ceil(n / workers), tick = () => { doneFrames++; if (doneFrames % 5 === 0) { const el = (Date.now() - t0) / 1000, left = el / doneFrames * (n - doneFrames); progress(doneFrames / n * .96, `Кадр ${doneFrames} из ${n} · осталось ~${left > 90 ? Math.ceil(left / 60) + ' мин' : Math.ceil(left) + ' с'}`); } };
     const jobs = [];
-    for (let w = 0; w < workers; w++) { const k0 = w * per, k1 = Math.min(n, k0 + per); if (k1 <= k0) break; const f = path.join(tmp, `seg${w}.${SEG[cont]}`); segs.push(f); jobs.push(renderSegment(job, k0, k1, f, { outW, outH, zoom }, tick)); }
-    const res = await Promise.allSettled(jobs); const bad = res.find(r => r.status === 'rejected'); if (bad) { cancelFlag = true; throw bad.reason; }
+    for (let w = 0; w < workers; w++) { const k0 = w * per, k1 = Math.min(n, k0 + per); if (k1 <= k0) break; const f = path.join(tmp, `seg${w}.${SEG[cont]}`); segs.push(f); jobs.push(renderSegment(job, k0, k1, f, { outW, outH, zoom }, tick).catch(e => { cancelFlag = true; throw e; })); }
+    // сбой одного окна сразу останавливает остальные (раньше они дорисовывали свои куски до конца); пользователю — настоящая причина, а не «отменено»
+    const res = await Promise.allSettled(jobs), bads = res.filter(r => r.status === 'rejected').map(r => r.reason); if (bads.length) throw bads.find(e => e && e.message !== '__cancel') || bads[0];
     progress(0.97, cont === 'gif' ? 'Собираю GIF…' : cont === 'sticker' ? 'Кодирую стикер…' : ext === 'webm' ? 'Кодирую WebM со звуком…' : 'Склеиваю видео со звуком…');
-    if (job.loud && cont !== 'gif' && cont !== 'sticker') { try { const dur = job.outDur || (job.end - job.start), lufs = await measureLoudness(job, dur); if (lufs != null) { job.gainDb = Math.max(-14, Math.min(12, -14 - lufs)); log(`громкость ролика ${lufs.toFixed(1)} LUFS → сдвиг ${job.gainDb.toFixed(1)} дБ`); } } catch (e) { log('громкость не измерена:', e.message); } }
+    if (job.loud && cont !== 'gif' && cont !== 'sticker') { try { const dur = job.outDur || (job.end - job.start), lufs = await measureLoudness(job, dur); if (lufs != null) { job.gainDb = Math.max(-14, Math.min(12, -14 - lufs)); log(`громкость ролика ${lufs.toFixed(1)} LUFS → сдвиг ${job.gainDb.toFixed(1)} дБ`); } } catch (e) { log('громкость не измерена:', e.message, e.raw || ''); } }
+    if (cancelFlag) throw new Error('__cancel');
     const list = path.join(tmp, 'list.txt'); fs.writeFileSync(list, segs.map(f => `file '${f.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
-    await runFF(finalArgs(Object.assign({}, job, { fps }), list, out, outW));
-    if (cont === 'sticker') for (const crf of [44, 52]) { if (fs.statSync(out).size <= 256 * 1024) break; progress(0.98, 'Ужимаю стикер до 256 КБ…'); await runFF(finalArgs(Object.assign({}, job, { fps, crf }), list, out, outW)); }
+    wrote = true; await runFF(finalArgs(Object.assign({}, job, { fps }), list, out, outW), true);
+    if (cont === 'sticker') for (const crf of [44, 52]) { if (fs.statSync(out).size <= 256 * 1024) break; progress(0.98, 'Ужимаю стикер до 256 КБ…'); await runFF(finalArgs(Object.assign({}, job, { fps, crf }), list, out, outW), true); }
     log('экспорт готов', ((Date.now() - t0) / 1000).toFixed(1) + ' с');
     progress(1, 'Готово'); return { ok: true, path: out, seconds: (Date.now() - t0) / 1000 };
   } catch (e) {
-    try { fs.unlinkSync(out); } catch (x) {}
+    // недоделанный файл удаляем; прежний файл с тем же именем не трогаем, если запись в него ещё не начиналась (отмена во время рендера)
+    if (wrote) try { fs.unlinkSync(out); } catch (x) {}
+    if (e && e.raw) log('ffmpeg сообщил:', e.raw);
     if (e.message === '__cancel') return { ok: false, cancelled: true };
     if (job.gpuEnc) { log('видеокарта не справилась, повторяю на процессоре:', e.message); GPU = null; return { retry: true, out }; }
     throw e;
-  } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} }
+  } finally { try { fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } catch (e) { log('временная папка экспорта не удалилась:', e.message); } }
 }
 handle('exportVideo', async (ev, job) => {
   const r = await exportVideoImpl(ev, job);
@@ -745,17 +882,19 @@ handle('renderFrame', async (ev, job) => {
 });
 handle('saveImage', async (ev, dataUrl, name) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr('Сохранить обложку'), defaultPath: name + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
-  if (r.canceled || !r.filePath) return null; fs.writeFileSync(r.filePath, Buffer.from(dataUrl.split(',')[1], 'base64')); return r.filePath;
+  if (r.canceled || !r.filePath) return null; try { fs.writeFileSync(r.filePath, Buffer.from(dataUrl.split(',')[1], 'base64')); } catch (e) { throw new Error(fsHuman(e, r.filePath)); } return r.filePath;
 });
 // один кадр в PNG (кадр из ролика или обложка)
 handle('exportFrame', async (ev, job) => {
   const r = await dialog.showSaveDialog(mainWin, { title: tr(job.title || 'Сохранить кадр'), defaultPath: (job.name || 'кадр') + '.png', filters: [{ name: 'PNG', extensions: ['png'] }] });
   if (r.canceled || !r.filePath) return { ok: false };
   const outW = job.width, outH = Math.round(job.width * job.H / job.W / 2) * 2; JOB_HTML = job.html;
-  fs.writeFileSync(r.filePath, (await grabFrame(job, outW, outH, job.t, !!job.transparent)).data); return { ok: true, path: r.filePath };
+  const png = (await grabFrame(job, outW, outH, job.t, !!job.transparent)).data; try { fs.writeFileSync(r.filePath, png); } catch (e) { throw new Error(fsHuman(e, r.filePath)); } return { ok: true, path: r.filePath };
 });
 handle('captureRect', async (ev, r) => {
-  const img = await mainWin.webContents.capturePage({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
+  // пустая область (превью свёрнуто) захватывала всё окно или давала пустую картинку вместо миниатюры
+  if (!r || !(r.width >= 2 && r.height >= 2)) return null;
+  const img = await mainWin.webContents.capturePage({ x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.round(r.width), height: Math.round(r.height) }); if (img.isEmpty()) return null;
   return 'data:image/jpeg;base64,' + img.resize({ width: 180 }).toJPEG(80).toString('base64');
 });
 handle('showFile', async (ev, p) => { shell.showItemInFolder(p); return true; });
