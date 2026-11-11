@@ -145,6 +145,7 @@
           <div class="row tight" style="margin-top:6px"><button id="seAccAdd" title="Сколько угодно акцентов в одной сцене: ещё одно подпрыгивание, штамп или эмодзи — каждый на своём слове. Новый акцент встаёт на слово под курсором">+ ещё акцент</button></div>
           <div class="row" style="margin-top:4px"><div style="flex:1"><label class="lbl">Переход сцены</label><select id="seTrans"><option value="">как в стиле</option><option value="fade">плавно</option><option value="surface">всплытие</option><option value="slide">слайд</option><option value="crisp">резкий</option><option value="zoom">зум</option><option value="whip">хлыст</option><option value="drop">падение</option></select></div>
           <div style="flex:1"><label class="lbl">Камера</label><select id="seCam"><option value="">нет</option><option value="in">наезд</option><option value="out">отъезд</option><option value="left">панорама ←</option><option value="right">панорама →</option><option value="sway">покачивание</option></select></div></div>
+          <label class="lbl">Звук сцены</label><select id="seSnd" title="Звуки интерфейса этой сцены (вибрация, клавиши, уведомления). Включаются в настройках звука: «звуки интерфейса сцен»"><option value="">авто</option><option value="off">выключить</option></select>
           <div id="seScaleBox"><label class="lbl">Размер карточки <span id="seScaleV" class="muted"></span></label><input id="seScale" type="range" min="0.6" max="1.7" step="0.01"></div>
         </details>
         <h4 class="sub">Стикеры и надписи</h4>
@@ -251,6 +252,8 @@
         <label class="chk"><input type="checkbox" id="sfxTrans"> вжух на переходах</label>
         <label class="chk"><input type="checkbox" id="sfxEvents"> события виджетов: «дзынь», клики, звонок</label>
         <label class="chk"><input type="checkbox" id="sfxAcc"> удары на штампах и акцентах</label>
+        <label class="chk" title="Каждая сцена звучит как её интерфейс: вибрация на звонке, клавиши и «отправлено» в переписке, «дзынь» на уведомлении, гудки диктофона, клик плеера, тики на счётчиках. Выключить у отдельной сцены — «Звук сцены» в панели сцены"><input type="checkbox" id="sfxUi"> звуки интерфейса сцен: вибрация, клавиши, уведомления</label>
+        <div id="sfxUiBox"><label class="lbl">Громкость звуков интерфейса <span id="sfxUiVolV" class="muted"></span></label><input id="sfxUiVol" type="range" min="0" max="1" step="0.05"></div>
         <div class="hint">Звуки слышны в превью и сводятся с треком при экспорте (кроме GIF).</div>
       </div>
     </section>
@@ -397,6 +400,7 @@
 <script src="i18n.js"></script>
 <script src="timeline.js"></script>
 <script src="sfx.js"></script>
+<script src="sfx-ui.js"></script>
 <script src="focus.js"></script><script src="dialogs.js"></script>
 <script src="app.js"></script>
 <script src="check.js"></script>

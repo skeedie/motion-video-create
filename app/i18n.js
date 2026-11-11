@@ -223,6 +223,12 @@ VHS: полосы, рябь, PLAY и дата ⇒ VHS: lines, noise, PLAY and da
 события виджетов: «дзынь», клики, звонок ⇒ widget events: dings, clicks, ringing
 удары на штампах и акцентах ⇒ hits on stamps and accents
 Звуки слышны в превью и сводятся с треком при экспорте (кроме GIF). ⇒ Sounds play in the preview and are mixed with the track on export (except GIF).
+звуки интерфейса сцен: вибрация, клавиши, уведомления ⇒ scene UI sounds: vibration, keys, notifications
+Каждая сцена звучит как её интерфейс: вибрация на звонке, клавиши и «отправлено» в переписке, «дзынь» на уведомлении, гудки диктофона, клик плеера, тики на счётчиках. Выключить у отдельной сцены — «Звук сцены» в панели сцены ⇒ Each scene sounds like its interface: vibration on a call, keys and “sent” in chats, a ding on notifications, recorder beeps, a player click, ticks on counters. To turn it off for one scene, use “Scene sound” in the scene panel
+Громкость звуков интерфейса ⇒ UI sounds volume
+Звук сцены ⇒ Scene sound
+выключить ⇒ off
+Звуки интерфейса этой сцены (вибрация, клавиши, уведомления). Включаются в настройках звука: «звуки интерфейса сцен» ⇒ UI sounds of this scene (vibration, keys, notifications). Turned on in the sound settings: “scene UI sounds”
 Шаблоны сцен ⇒ Scene templates
 Куда ⇒ Where
 Свой ⇒ Custom
