@@ -34,6 +34,7 @@
     <button data-act="keys">Горячие клавиши</button>
     <button data-act="update">Проверить обновления</button>
     <button data-act="selftest">Проверка системы…</button>
+    <button data-act="check">Проверить ролик…</button>
     <button data-act="models">Модели нейросетей…</button>
     <button data-act="lang" id="langBtn">English interface</button>
     <button data-act="licenses">Лицензии компонентов</button>
@@ -41,6 +42,7 @@
     <button data-act="logs">Открыть папку с журналом</button>
     <div class="mver muted small" id="verLabel"></div>
   </div></div>
+  <button id="bCheck" class="ghost" title="Найти текст поверх карточек, выход за кадр, повторы шаблонов и пустые поля">Проверить ролик</button>
   <button id="bExport" class="primary" title="Ctrl+E">Экспорт видео</button>
 </header>
 <div id="banner" hidden><span id="bannerText"></span><div class="grow"></div><span id="bannerBtns"></span></div>
@@ -397,5 +399,6 @@
 <script src="sfx.js"></script>
 <script src="focus.js"></script><script src="dialogs.js"></script>
 <script src="app.js"></script>
+<script src="check.js"></script>
 </body>
 </html>

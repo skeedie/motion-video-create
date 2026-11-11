@@ -282,6 +282,65 @@ WebM · прозрачный ⇒ WebM · transparent
 Проверка системы ⇒ System check
 Проверяет, всё ли нужное для работы есть на этом компьютере, и делает пробный экспорт 3 секунд со звуковыми эффектами. Ничего не сохраняется. ⇒ Checks that this computer has everything needed and makes a 3-second test export with sound effects. Nothing is saved.
 Проверить снова ⇒ Check again
+Проверить ролик ⇒ Check video
+Проверить ролик… ⇒ Check video…
+Найти текст поверх карточек, выход за кадр, повторы шаблонов и пустые поля ⇒ Find lyrics over cards, things outside the frame, repeated templates and empty fields
+Проверка ролика ⇒ Video check
+Ищет текст поверх карточек, выход за кадр, повторы шаблонов, слишком быстрые строки и пустые поля. Ролик не меняется, пока вы не нажмёте «исправить». ⇒ Looks for lyrics over cards, things outside the frame, repeated templates, lines that flash by too fast and empty fields. Nothing changes until you press “fix”.
+Исправить всё безопасное ⇒ Fix all safe issues
+К списку проверки ⇒ Back to check results
+Текст поверх карточки ⇒ Lyrics over a card
+За краем кадра ⇒ Outside the frame
+Зона интерфейса площадки ⇒ Platform UI zone
+Повтор шаблона ⇒ Repeated template
+Слишком быстро ⇒ Too fast
+Порядок слов ⇒ Word order
+Пустое поле ⇒ Empty field
+Неуверенные слова ⇒ Uncertain words
+Нет файла ⇒ Missing file
+Пустая сцена ⇒ Empty scene
+Стикер за кадром ⇒ Sticker outside the frame
+В сцене нет слов ⇒ The scene has no words
+Весь ролик ⇒ Whole video
+Движок не запустился: ⇒ The engine did not start:
+Исправлено (Ctrl+Z — отменить) ⇒ Fixed (Ctrl+Z to undo)
+Исправлено частично — посмотрите сцену ⇒ Partly fixed — have a look at the scene
+Картинка в поле не найдена: ⇒ Image not found in field:
+Логотип: картинка не найдена ⇒ Logo: image not found
+Не удалось исправить: ⇒ Could not fix:
+Не удалось проверить: ⇒ Could not check:
+Нейросеть не уверена в словах: ⇒ The AI is unsure about these words:
+Один шаблон в большинстве сцен: ⇒ One template in most scenes:
+Проблем не найдено ⇒ No problems found
+Проверка остановлена — показано найденное до остановки ⇒ Check stopped — showing what was found so far
+Проверка уже идёт ⇒ A check is already running
+Проверяю ещё раз… ⇒ Checking again…
+Пустое поле шаблона: ⇒ Empty template field:
+Слова идут не по порядку: ⇒ Words are out of order:
+Сначала добавьте текст и синхронизируйте слова ⇒ Add lyrics and sync the words first
+Стикер-картинка не найдена ⇒ Image sticker not found
+Строка на экране меньше 0,5 с: ⇒ Line is on screen for less than 0.5 s:
+Текст заходит под кнопки и подписи площадки ⇒ Lyrics go under the platform's buttons and caption
+Тот же шаблон, что у соседней сцены: ⇒ Same template as the neighbouring scene:
+Трек не загружен — без него не будет звука и экспорта ⇒ No track loaded — no sound and no export without it
+Фон-картинка или видео: файл не найден ⇒ Background image or video: file not found
+Шрифт не найден: ⇒ Font not found:
+исправить ⇒ fix
+показать ⇒ show
+Исправлено: {}. Ctrl+Z — отменить ⇒ Fixed: {}. Ctrl+Z to undo
+Карточка выходит за край кадра на {} px ⇒ Card sticks out of the frame by {} px
+Карточка выходит за экран телефона на {} px ⇒ Card sticks out of the phone screen by {} px
+Текст выходит за край кадра на {} px ⇒ Lyrics stick out of the frame by {} px
+Текст выходит за экран телефона на {} px ⇒ Lyrics stick out of the phone screen by {} px
+Карточка заходит под кнопки и подписи площадки ({} px) ⇒ Card goes under the platform's buttons and caption ({} px)
+Надпись выходит за край кадра на {} px: ⇒ Text sticker sticks out of the frame by {} px:
+Стикер выходит за край кадра на {} px ⇒ Sticker sticks out of the frame by {} px
+Найдено: {} · {} с ⇒ Found: {} · {} s
+Осталось: {} ⇒ Left: {}
+Сцена {} из {}… ⇒ Scene {} of {}…
+Сцена {} · {} ⇒ Scene {} · {}
+Текст поверх карточки ({}×{} px) ⇒ Lyrics over a card ({}×{} px)
+в сценах: {} ⇒ in scenes: {}
 Скопировать результат ⇒ Copy results
 Папка с журналом ⇒ Log folder
 Обложка — выберите вариант ⇒ Cover — pick a variant
