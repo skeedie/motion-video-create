@@ -360,12 +360,14 @@ $('#scrub').addEventListener('pointerdown', () => $('#scrub')._drag = true); $('
 const SFX_CAT = { 'Переписка': 'ding', 'Соцсети': 'ding', 'Игры': 'blip', 'Цифры': 'tick', 'Документы': 'thump', 'Состояние': 'pop' };
 function sfxEvents(spec) {
   const sx = proj.style.sfx, ev = [], W = spec.words, lead = spec.lead ?? .2;
+  const uiEv = [], uiT = sx.ui ? SFX.sceneTimes(spec) : null; // звуки интерфейса сцен (app/sfx-ui.js)
   const push = (t, type, v) => { if (t != null && isFinite(t)) ev.push({ t, type, v }); };
   const walk = (o, cb) => { if (!o || typeof o !== 'object') return; for (const k in o) { const v = o[k]; if (/(^at$|_at$)/.test(k) && typeof v === 'number' && v >= 0 && W[v]) cb(W[v].t); else if (typeof v === 'object') walk(v, cb); } };
   spec.scenes.forEach((s, k) => {
     const sc = proj.scenes[k], tpl = TPL[sc && sc.tpl] || {}, w0 = W[s.words[0]]; if (!w0) return;
     if (sx.trans && k > 0) push(w0.t - lead - .12, 'whoosh', .8);
-    if (sx.events && s.widget) {
+    const ui = !!(uiT && sc && sc.snd !== 'off' && (SFX.uiHas(s.widget) || SFX.uiHas(s.widget2))); if (ui) uiEv.push(...SFX.uiEvents(spec, k, sx.uiVol ?? .7, uiT));
+    if (sx.events && s.widget && !ui) {
       if (tpl.id === 'typing') { for (let i = s.words[0]; i < s.words[1]; i++) push(W[i].t, 'click', .8); }
       else if (tpl.id === 'call' || tpl.id === 'callfull') push(w0.t - lead + .1, 'ring', .7);
       else if (tpl.id === 'achievement' || tpl.id === 'pcach') push(w0.t, 'chime', .9);
@@ -376,8 +378,10 @@ function sfxEvents(spec) {
   if (sx.acc) W.forEach(w => { if (w.acc && (w.acc.zoom || w.acc.shake)) push(w.t, 'hit', .8); else if (w.acc && w.acc.emoji) push(w.t + .04, 'pop', .7); });
   if (sx.trans && spec.intro) push(spec.intro.t0 + .1, 'whoosh', .7);
   if (sx.trans && spec.outro) push(spec.outro.t0 - .1, 'whoosh', .8);
-  ev.sort((a, b) => a.t - b.t); return ev.filter((e, i) => !i || e.t - ev[i - 1].t > .07 || e.type !== ev[i - 1].type);
+  ev.sort((a, b) => a.t - b.t); const out = ev.filter((e, i) => !i || e.t - ev[i - 1].t > .07 || e.type !== ev[i - 1].type);
+  return uiEv.length ? out.concat(uiEv).sort((a, b) => a.t - b.t) : out;
 }
+SFX.appEvents = sfxEvents;
 let sfxBuf = null, sfxKey = '', sfxTimer = null, sfxCtx = null, sfxGain = null, sfxNode = null, sfxT0 = 0;
 function scheduleSfx(spec) {
   clearTimeout(sfxTimer); if (!proj.style.sfx.on) { sfxBuf = null; stopSfx(); return; }
@@ -665,6 +669,7 @@ function renderScene() {
   $('#seFx').value = sc.fx || ''; $('#seFxAt').innerHTML = wordOptions(sc, sc.fxAt, 'авто');
   renderAccents(sc, card);
   $('#seTrans').value = sc.trans || ''; $('#seCam').value = sc.cam || '';
+  $('#seSnd').value = sc.snd === 'off' ? 'off' : '';
   $('#seScale').value = sc.scale || defScale(sc); $('#seScaleV').textContent = (+$('#seScale').value).toFixed(2);
 }
 // ---------- конструктор виджета из блоков ----------
@@ -735,6 +740,7 @@ function renderFields(box, t, store) {
 function defScale(sc) { try { const w = TPL[sc.tpl].make(fieldsOf(sc), sceneCtx(sc)).widget; return (w && w.scale) || 1.3; } catch (e) { return 1.3; } }
 $('#seTrans').onchange = e => { targets().forEach(i => proj.scenes[i].trans = e.target.value); scheduleRebuild(50); };
 $('#seCam').onchange = e => { targets().forEach(i => proj.scenes[i].cam = e.target.value); scheduleRebuild(50); };
+$('#seSnd').onchange = e => { targets().forEach(i => { if (e.target.value) proj.scenes[i].snd = e.target.value; else delete proj.scenes[i].snd; }); scheduleSfx(buildSpec(false)); touch(); };
 $('#seBump').onchange = e => { proj.scenes[sel].bump = e.target.value; scheduleRebuild(); };
 $('#seStamp').oninput = e => { proj.scenes[sel].stamp = e.target.value; scheduleRebuild(); };
 $('#seStampAt').onchange = e => { proj.scenes[sel].stampAt = e.target.value; scheduleRebuild(); };
@@ -868,6 +874,7 @@ function fillStyle() {
   $('#fx3d').value = fx.tilt3d || 0; $('#fx3dV').textContent = +fx.tilt3d ? (+fx.tilt3d).toFixed(2) : 'выкл';
   $('#hookText').value = st.hook || ''; $('#hookDur').value = st.hookDur || 2.5; $('#fxEnergy').checked = !!(st.fx && st.fx.energy);
   const sx = st.sfx; $('#sfxOn').checked = !!sx.on; $('#sfxBox').classList.toggle('off', !sx.on); $('#sfxVol').value = sx.vol; $('#sfxVolV').textContent = Math.round(sx.vol * 100) + '%'; $('#sfxTrans').checked = !!sx.trans; $('#sfxEvents').checked = !!sx.events; $('#sfxAcc').checked = !!sx.acc;
+  $('#sfxUi').checked = !!sx.ui; $('#sfxUiBox').classList.toggle('off', !sx.ui); $('#sfxUiVol').value = sx.uiVol ?? .7; $('#sfxUiVolV').textContent = Math.round((sx.uiVol ?? .7) * 100) + '%';
   $('#outOn').checked = !!oo.on; $('#outText').value = oo.text || ''; $('#outDur').value = oo.dur; $('#outSub').value = oo.sub || ''; $('#adlibs').value = st.adlibs || 'chip';
   updateTransport(curT());
 }
@@ -892,6 +899,9 @@ $('#hookDur').addEventListener('change', e => { proj.style.hookDur = +e.target.v
 $('#fx3d').addEventListener('input', e => { proj.style.fx.tilt3d = +e.target.value; $('#fx3dV').textContent = +e.target.value ? (+e.target.value).toFixed(2) : 'выкл'; scheduleRebuild(250); });
 $('#fxEnergy').onchange = e => { proj.style.fx.energy = e.target.checked; if (e.target.checked && !beatInfo) toast('Нужен загруженный трек'); scheduleRebuild(50); };
 ['On', 'Trans', 'Events', 'Acc'].forEach(k => $('#sfx' + k).addEventListener('change', e => { proj.style.sfx[k === 'On' ? 'on' : k.toLowerCase()] = e.target.checked; fillStyle(); scheduleRebuild(50); }));
+$('#sfxUi').addEventListener('change', e => { proj.style.sfx.ui = e.target.checked; if (proj.style.sfx.uiVol == null) proj.style.sfx.uiVol = .7; fillStyle(); scheduleSfx(buildSpec(false)); touch(); });
+$('#sfxUiVol').addEventListener('input', e => { proj.style.sfx.uiVol = +e.target.value; $('#sfxUiVolV').textContent = Math.round(e.target.value * 100) + '%'; });
+$('#sfxUiVol').addEventListener('change', () => { scheduleSfx(buildSpec(false)); touch(); });
 $('#sfxVol').addEventListener('input', e => { proj.style.sfx.vol = +e.target.value; $('#sfxVolV').textContent = Math.round(e.target.value * 100) + '%'; if (sfxGain) sfxGain.gain.value = +e.target.value; touch(); });
 $('#litePrev').checked = localStorage.getItem('ls-lite') === '1'; $('#litePrev').onchange = e => { localStorage.setItem('ls-lite', e.target.checked ? '1' : '0'); rebuildPreview(); };
 $('#adlibs').onchange = e => { proj.style.adlibs = e.target.value; renderScene(); scheduleRebuild(50); };
