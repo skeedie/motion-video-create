@@ -1,0 +1,69 @@
+name: Проверка интерфейса
+on:
+  push:
+    branches: ['**']
+    paths: ['app/**', 'dev/tests/**', 'dev/server.py', '.github/workflows/ui-test.yml']
+  workflow_dispatch:
+concurrency:
+  group: ui-test-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  editor:
+    name: Сценарии редактора
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Playwright и Chromium
+        run: |
+          pip install playwright==1.65.0  # закреплено: от версии Chromium зависят числа в geometry_baseline.json
+          python -m playwright install --with-deps chromium
+      - name: ffmpeg
+        run: (sudo apt-get install -y --no-install-recommends ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)) && ffmpeg -version | head -1
+      - name: Dev-сервер
+        run: |
+          nohup python dev/server.py 8765 > server.log 2>&1 &
+          for i in $(seq 1 50); do curl -sf -o /dev/null http://127.0.0.1:8765/index.html && exit 0; sleep 0.2; done
+          cat server.log; exit 1
+      - name: Тесты
+        run: python dev/tests/run.py 8765 --out ui-out
+      - name: Скриншоты падений
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-shots
+          path: ui-out
+          if-no-files-found: ignore
+          retention-days: 7
+
+  geometry:
+    name: Геометрия кадра (шаблоны × пресеты)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Playwright и Chromium
+        run: |
+          pip install playwright==1.65.0  # закреплено: от версии Chromium зависят числа в geometry_baseline.json
+          python -m playwright install --with-deps chromium
+      - name: ffmpeg
+        run: sudo apt-get install -y --no-install-recommends ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+      - name: Dev-сервер
+        run: |
+          nohup python dev/server.py 8765 > server.log 2>&1 &
+          for i in $(seq 1 50); do curl -sf -o /dev/null http://127.0.0.1:8765/index.html && exit 0; sleep 0.2; done
+          cat server.log; exit 1
+      - name: Перебор 9:16 и 16:9, сверка с baseline
+        run: python dev/tests/run.py 8765 --geometry --formats 9:16,16:9 --out geo-out
+      - name: Находки и скриншоты сбоев
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: geometry
+          path: geo-out
+          if-no-files-found: ignore
+          retention-days: 7
