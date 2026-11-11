@@ -458,6 +458,17 @@ iMessage: диалог (она → я) ⇒ iMessage: dialogue (her → me)
 Справа снизу ⇒ Bottom right
 Извилистый путь ⇒ Winding route
 Подпись под моим ⇒ Caption under mine
+Аватар: сдвиг по X ⇒ Avatar: X offset
+Аватар: сдвиг по Y ⇒ Avatar: Y offset
+Аватар: размер, % ⇒ Avatar: size, %
+Размер заголовка, % ⇒ Title size, %
+Цвет значка 1 ⇒ Icon colour 1
+Цвет значка 2 ⇒ Icon colour 2
+Заголовок 1 ⇒ Title 1
+Время уведомлений ⇒ Notification time
+Мой аватар (эмодзи) ⇒ My avatar (emoji)
+Цвет ника и аватара ⇒ Nickname and avatar colour
+Аватар (эмодзи) ⇒ Avatar (emoji)
 Ответить в конце ⇒ Reply at the end
 Канал ⇒ Channel
 Мой ник ⇒ My nickname

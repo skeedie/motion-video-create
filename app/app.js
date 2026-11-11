@@ -722,7 +722,7 @@ function renderFields(box, t, store) {
       d.innerHTML = `<label class="lbl">${esc(fd.label)}</label>`;
       if (fd.type === 'select') { inp = document.createElement('select'); inp.innerHTML = fd.opts.map(o => `<option ${o === v ? 'selected' : ''} value="${o}">${SEL_LABEL[o] || o}</option>`).join(''); }
       else if (fd.type === 'font') { inp = document.createElement('select'); inp.innerHTML = fontOptions(v); }
-      else { inp = document.createElement('input'); inp.type = fd.type === 'number' ? 'number' : fd.type === 'color' ? 'color' : 'text'; if (fd.type === 'number') inp.step = 'any'; inp.value = v; if (fd.type === 'emoji') inp.className = 'emo'; }
+      else { inp = document.createElement('input'); inp.type = fd.type === 'number' ? 'number' : fd.type === 'color' ? 'color' : 'text'; if (fd.type === 'number') { inp.step = 'any'; if (fd.opts) { inp.min = fd.opts.min; inp.max = fd.opts.max; } } inp.value = v; if (fd.type === 'emoji') inp.className = 'emo'; }
       inp.oninput = async () => {
         if (fd.type === 'font' && inp.value === '__load') { const fam = await loadFont(); if (fam) store[fd.k] = fam; renderScene(); scheduleRebuild(50); return; }
         store[fd.k] = fd.type === 'number' ? +inp.value : inp.value; scheduleRebuild();
