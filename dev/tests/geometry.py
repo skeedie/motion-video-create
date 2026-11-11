@@ -20,7 +20,9 @@ async ({fmt, pk, base})=>{
   const P=__ls.proj, out=[];
   const [FW,FH]=(%SIZES%)[fmt];
   const fr=document.createElement('iframe'); fr.style.cssText=`position:fixed;left:0;top:0;width:${FW}px;height:${FH}px;border:0;z-index:99999;background:#000`; document.body.append(fr);
-  const load=html=>new Promise(res=>{ fr.onload=()=>{ const w=fr.contentWindow; let n=0; const iv=setInterval(()=>{ if(w.READY===true||w.__err||++n>200){ clearInterval(iv); res(w); } },25); }; fr.srcdoc=html; });
+  // как при экспорте: ждём READY, загрузку шрифтов (после неё движок заново подгоняет карточки) и две перерисовки
+  const raf2=w=>new Promise(r=>w.requestAnimationFrame(()=>w.requestAnimationFrame(r)));
+  const load=html=>new Promise(res=>{ fr.onload=()=>{ const w=fr.contentWindow; let n=0; const iv=setInterval(async()=>{ if(w.READY===true||w.__err||++n>200){ clearInterval(iv); try{ if(w.document.fonts) await w.document.fonts.ready; await raf2(w); }catch(e){} res(w); } },25); }; fr.srcdoc=html; });
   const vis=el=>{ let o=1; for(let e=el;e&&e.nodeType===1;e=e.parentElement){ const cs=e.ownerDocument.defaultView.getComputedStyle(e); if(cs.display==='none'||cs.visibility==='hidden') return 0; o*=+cs.opacity; } return o; };
   const btn=document.querySelector(`#presetGrid .pr[data-k="${pk}"]`); if(!btn) return [[pk,'*',-1,'preset','пресет не найден']];
   btn.click(); P.style.format=fmt;
@@ -30,7 +32,7 @@ async ({fmt, pk, base})=>{
     const w=await load(__ls.engineHTML(spec,base));
     if(w.__err||w.READY!==true){ out.push([pk,t.id,-1,'engine',String(w.__err||'не готов')]); continue; }
     for(const si of [0,1]){ const sc=P.scenes[si], nx=P.words[sc.b]?P.words[sc.b].t:1e9, tt=Math.max(P.words[sc.a].t+.1, Math.min(P.words[sc.b-1].t+.2, nx-.5));
-      try{ if(w.seekAsync) await w.seekAsync(tt); else w.seek(tt); }catch(e){ out.push([pk,t.id,si,'seek',e.message]); continue; }
+      try{ if(w.seekAsync) await w.seekAsync(tt); else w.seek(tt); await raf2(w); }catch(e){ out.push([pk,t.id,si,'seek',e.message]); continue; }
       const d=fr.contentDocument, vw=w.innerWidth, vh=w.innerHeight, probs=[];
       const cards=[...d.querySelectorAll('.wslot .wscale')].filter(e=>vis(e)>.5).map(e=>e.getBoundingClientRect()).filter(r=>r.width>4);
       const caps=[...d.querySelectorAll('.cap, .kin > *')].filter(e=>vis(e)>.5&&e.textContent.trim()).map(e=>e.getBoundingClientRect()).filter(r=>r.width>4&&r.height>4);
@@ -108,6 +110,7 @@ def run(env, browser, formats, update, out_dir):
             worse_all.append(f'{fmt}: ошибки страницы {r["pageerrors"][:3]}')
     json.dump(raw, open(os.path.join(out_dir, 'geometry_raw.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=0)
     json.dump(new_base, open(os.path.join(out_dir, 'geometry_current.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    print('GEOMETRY_CURRENT ' + json.dumps(new_base, ensure_ascii=False, separators=(',', ':')), flush=True)
     if better_all:
         print('\nСТАЛО ЛУЧШЕ (можно обновить baseline: --update-baseline):\n  ' + '\n  '.join(better_all))
     if update:
