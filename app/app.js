@@ -1322,11 +1322,13 @@ $('#xQGo').onclick = async () => {
   if (!queue.length) return toast('Очередь пуста — добавьте версии');
   const dir = await api.pickFolder(); if (!dir) return;
   await ensureSpectrum(); exporting = true; $('#xGo').disabled = true; $('#xQGo').disabled = true; $('#xCancel').hidden = false; const st = $('#xStatus'); st.className = 'status';
-  const sep = dir.includes('\\') ? '\\' : '/'; let ok = 0;
+  const sep = dir.includes('\\') ? '\\' : '/'; let ok = 0; const used = new Set();
   for (const q of queue) {
     if (q.state === 'done') continue; q.state = 'run'; q.msg = ''; renderQueue();
     try {
-      const job = makeJob(q.o, q.format); job.sfx = await sfxForExport(job._spec, q.o.container); delete job._spec; job.outPath = dir + sep + job.name + '.' + q.o.container;
+      // две версии одного формата (другое разрешение, частота кадров, черновик) не перезаписывают друг друга
+      const job = makeJob(q.o, q.format); job.sfx = await sfxForExport(job._spec, q.o.container); delete job._spec; let nm = job.name, k = 2;
+      if (used.has(nm.toLowerCase())) nm = `${job.name}-${q.o.res}p${q.o.fps !== 30 ? '-' + q.o.fps + 'fps' : ''}`; while (used.has(nm.toLowerCase())) nm = `${job.name}-${k++}`; used.add(nm.toLowerCase()); job.outPath = dir + sep + nm + '.' + q.o.container;
       const r = await api.exportVideo(job, p => { $('#xBar').style.width = Math.round(p.frac * 100) + '%'; st.textContent = `${q.format}: ${p.text}`; });
       if (r && r.ok) { q.state = 'done'; q.msg = 'готово'; ok++; lastExportPath = r.path; } else { q.state = ''; q.msg = r && r.cancelled ? 'отменено' : 'не сохранено'; renderQueue(); break; }
     } catch (e) { q.state = 'err'; q.msg = e.message || String(e); api.log('error', 'очередь: ' + q.msg); }
