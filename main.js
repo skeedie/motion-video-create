@@ -82,6 +82,7 @@ async function ciRun(dir) {
   try {
     fs.mkdirSync(dir, { recursive: true }); const d = screen.getPrimaryDisplay(); rep.display = { size: d.size, workArea: d.workAreaSize, scale: d.scaleFactor };
     for (let i = 0; i < 300; i++) { if (await mainWin.webContents.executeJavaScript('!!(window.__ls&&window.__ciJob)').catch(() => false)) break; await sleep(100); }
+    if (process.env.LS_CI_NN_ONLY) { await ciNN(dir, rep).catch(e => rep.errors.push('нейросети: ' + (e.stack || e.message))); throw null; }
     const small = {}, thumb = png => nativeImage.createFromBuffer(png).resize({ width: 90, height: 160, quality: 'best' }).toBitmap();
     for (const [fmt, width, t, alpha] of [['9:16', 720, .9], ['9:16', 1080, .9], ['9:16', 1080, 2.4], ['9:16', 1080, 1.5], ['9:16', 1440, .9], ['9:16', 2160, .9], ['16:9', 1920, .9], ['1:1', 1080, .9], ['9:16', 1080, .9, true]]) {
       const job = await mainWin.webContents.executeJavaScript(`window.__ciJob(${JSON.stringify(fmt)})`), outW = width, outH = Math.round(width * job.H / job.W / 2) * 2, name = `frame-${fmt.replace(':', 'x')}-${width}-${t}${alpha ? '-alpha' : ''}.png`;
@@ -105,9 +106,27 @@ async function ciRun(dir) {
       else rep.errors.push('экспорт не удался: ' + JSON.stringify(r));
     } catch (e) { rep.errors.push('export: ' + (e.stack || e.message)); }
     await ciEdge(dir, rep).catch(e => rep.errors.push('краевые случаи: ' + (e.stack || e.message)));
-  } catch (e) { rep.errors.push(e.stack || e.message); }
+    await ciNN(dir, rep).catch(e => rep.errors.push('нейросети: ' + (e.stack || e.message)));
+  } catch (e) { if (e) rep.errors.push(e.stack || e.message); }
   try { fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(rep, null, 1)); } catch (e) {}
   markClean(); killChildren(); app.exit(rep.errors.length ? 1 : 0);
+}
+
+// Процесс нейросетей на настоящем Electron (и в собранной программе — LS_CI_NN_ONLY): запуск, onnxruntime, настоящая модель битов,
+// падение процесса посреди расчёта и автоматический перезапуск
+async function ciNN(dir, rep) {
+  const r = rep.nn = {};
+  const p = await nn.ping(90000); r.ping = p; if (!p || !p.ort) { rep.errors.push('процесс нейросетей: onnxruntime не загрузился ' + JSON.stringify(p)); return; }
+  const [file] = await ensureM2('beat', () => {}), wav = path.join(dir, 'клики 120.wav');
+  await runFF(['-v', 'error', '-y', '-f', 'lavfi', '-i', "aevalsrc='sin(2*PI*60*t)*exp(-25*mod(t\\,0.5))':s=44100:d=20", '-ac', '2', wav]);
+  let t0 = Date.now(); const x = await decodeMean22k(wav), b = await nn.job('beats', { file, x }, { cancellable: false, retry: true }); r.beatsMs = Date.now() - t0;
+  const P = []; for (let i = 0; i < b.beat.length; i++) { if (b.beat[i] <= 0) continue; let m = true; for (let k = -3; k <= 3; k++) { const j = i + k; if (j >= 0 && j < b.beat.length && b.beat[j] > b.beat[i]) m = false; } if (m && (!P.length || i - P[P.length - 1] > 1)) P.push(i); }
+  const bpm = P.length > 1 ? 60 / ((P[P.length - 1] - P[0]) / (P.length - 1) / b.fps) : 0; r.bpm = +bpm.toFixed(1);
+  if (!(Math.abs(bpm - 120) < 6 || Math.abs(bpm - 240) < 12)) rep.errors.push(`процесс нейросетей: биты ${r.bpm} BPM вместо 120`);
+  // падение процесса посреди расчёта: понятная ошибка, а следующий вызов работает
+  const pr = nn.job('beats', { file, x }, { cancellable: false }); setTimeout(() => { try { process.kill(nn.state().pid, 'SIGKILL'); } catch (e) { r.killErr = e.message; } }, 300);
+  try { await pr; r.crash = 'не упал (успел досчитать)'; } catch (e) { r.crash = e.message; if (!/памяти|процесс/i.test(e.message)) rep.errors.push('процесс нейросетей: после падения непонятная ошибка: ' + e.message); }
+  t0 = Date.now(); const b2 = await nn.job('beats', { file, x }, { cancellable: false }); r.afterCrashMs = Date.now() - t0; if (!b2 || !b2.beat || !b2.beat.length) rep.errors.push('процесс нейросетей: после падения не перезапустился');
 }
 
 // Краевые случаи экспорта: папка и трек с кириллицей, пробелом и апострофом (в том числе временная папка), вырезки, громкость,
