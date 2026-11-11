@@ -152,6 +152,8 @@ async function ciEdge(dir, rep) {
   // 5. 60 к/с и ролик в 1 секунду, затухание длиннее ролика
   await step('fps60-1s', async R => { const out = path.join(K, '60 кадров.mp4'), r = await ex({ fps: 60, start: 0, end: 1, outDur: 1, fadeOut: 5, fadeIn: 3, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r));
     const s = await runFFOut(['-hide_banner', '-i', out, '-map', '0:v', '-f', 'null', '-']), fr = s.match(/frame=\s*(\d+)/g); R.frames = fr ? +fr.pop().match(/\d+/)[0] : 0; R.fps60 = /60 fps/.test(s); if (Math.abs(R.frames - 60) > 1 || !R.fps60) err('fps60-1s', `кадров ${R.frames}, 60 fps: ${R.fps60}`); });
+  await step('2160-24fps-mid', async R => { const out = path.join(K, '4K 24.mp4'), r = await ex({ width: 2160, fps: 24, start: 5, end: 6.5, outDur: 1.5, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r));
+    const s = await info(out); R.stream = (s.match(/Stream #0:0.*/) || [''])[0]; R.dur = durOf(s); if (!/2160x3840/.test(R.stream) || !/24 fps/.test(R.stream) || Math.abs(R.dur - 1.5) > 0.1) err('2160-24fps-mid', `${R.stream} ${R.dur}`); });
   // 6. трек короче отрезка: звук добивается тишиной, ролик нужной длины
   await step('short-track', async R => { const out = path.join(K, 'короткий трек.mp4'), r = await ex({ start: 10, end: 14, outDur: 4, outPath: out }); if (!r || !r.ok) throw new Error(JSON.stringify(r)); const s = await runFFOut(['-hide_banner', '-i', out, '-map', '0:a', '-f', 'null', '-']), t = s.match(/time=(\d+):(\d+):([\d.]+)/g); R.audioSec = t ? durOf('Duration: ' + t.pop().slice(5)) : 0; if (R.audioSec < 3.8) err('short-track', `звук ${R.audioSec} с вместо 4`); });
   // 7. ошибки, которые должны приходить сразу и по-русски
