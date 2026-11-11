@@ -9,6 +9,17 @@
   const F = (k, label, def, type = 'text', opts) => ({ k, label, def, type, opts });
   // градиент аватарки из одного цвета; если цвет не задан (старый проект) — прежний градиент шаблона
   const GRAD = (c, def) => /^#[0-9a-f]{6}$/i.test(c || '') ? `linear-gradient(180deg,${c}99,${c})` : def;
+  // сдвиг и размер аватара внутри карточки: поля avDx, avDy (px макета) и avK (%); диапазон свой у каждого шаблона,
+  // чтобы аватар не выходил за карточку. В виджет уходят только отличия от значений по умолчанию — старые проекты не меняются.
+  const NUM = (v, a, b, d) => { v = v === '' || v == null || isNaN(+v) ? d : +v; return Math.min(b, Math.max(a, v)); };
+  const AVF = (x0, x1, y0, y1, k1 = 150) => [F('avDx', 'Аватар: сдвиг по X', 0, 'number', { min: x0, max: x1 }), F('avDy', 'Аватар: сдвиг по Y', 0, 'number', { min: y0, max: y1 }), F('avK', 'Аватар: размер, %', 100, 'number', { min: 50, max: k1 })];
+  const AVA = (f, t) => { const o = {}, r = {}; (T.find(x => x.id === t).fields).forEach(d => { if (/^av[DK]/.test(d.k)) r[d.k] = d.opts; });
+    const dx = NUM(f.avDx, r.avDx.min, r.avDx.max, 0), dy = NUM(f.avDy, r.avDy.min, r.avDy.max, 0), k = NUM(f.avK, r.avK.min, r.avK.max, 100) / 100;
+    if (dx) o.dx = dx; if (dy) o.dy = dy; if (k !== 1) o.k = k; return o; };
+  const TKF = F('titleK', 'Размер заголовка, %', 100, 'number', { min: 60, max: 160 });
+  const TK = f => { const k = NUM(f.titleK, 60, 160, 100) / 100; return k !== 1 ? k : undefined; };
+  // цвет аватара, у которого прежний вид — особый градиент: при цвете по умолчанию остаётся он
+  const GD = (c, hex, def) => String(c || '').toLowerCase() === hex.toLowerCase() ? def : GRAD(c, def);
   const STRIP = F('strip', 'Текст строки', 'auto', 'select', ['auto', 'note', 'ticker', 'transcript', 'status', 'warn', 'search', 'data', 'none']);
   const strip = (f, def, extra = {}) => {
     const s = f.strip === 'auto' || !f.strip ? def : f.strip;
@@ -18,39 +29,41 @@
 
   // ---------- Переписка ----------
   add({ id: 'chat', name: 'iMessage: я пишу', cat: 'Переписка', lines: 2,
-    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), F('reply', 'Ответ в конце (пусто — без ответа)', '👀'), F('keyboard', 'Клавиатура', true, 'bool')],
-    make: (f, c) => ({ widget: { type: 'chat', name: f.name, avatar: { emoji: f.emoji, img: f.img || undefined, color: `linear-gradient(180deg,${f.color}99,${f.color})` }, keyboard: !!f.keyboard, height: 540, scale: 1.27,
-      msgs: [{ me: true, text: c.part(0, 2), at: c.at(0, 2) }, { me: true, text: c.part(1, 2), at: c.at(1, 2) }].concat(f.reply ? [{ text: f.reply, at: 'end-0.5' }] : []) } }) });
+    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), ...AVF(-150, 150, -12, 12), TKF, F('reply', 'Ответ в конце (пусто — без ответа)', '👀'), F('status', 'Подпись под моим', ''), F('keyboard', 'Клавиатура', true, 'bool')],
+    make: (f, c) => ({ widget: { type: 'chat', name: f.name, avatar: Object.assign({ emoji: f.emoji, img: f.img || undefined, color: `linear-gradient(180deg,${f.color}99,${f.color})` }, AVA(f, 'chat')), titleK: TK(f), keyboard: !!f.keyboard, height: 540, scale: 1.27,
+      msgs: [{ me: true, text: c.part(0, 2), at: c.at(0, 2) }, { me: true, text: c.part(1, 2), at: c.at(1, 2), status: f.status || undefined, status_at: f.status ? 'end-0.9' : undefined }].concat(f.reply ? [{ text: f.reply, at: 'end-0.5' }] : []) } }) });
 
   add({ id: 'tg-her', name: 'Telegram: пишет она', cat: 'Переписка', lines: 2,
-    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('status', 'Статус', 'в сети'), F('time', 'Время', '03:12'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image')],
-    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: { emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, status: f.status, typing_until: 'start', height: 420, scale: 1.3,
+    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('status', 'Статус', 'в сети'), F('time', 'Время', '03:12'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), ...AVF(-100, 10, -10, 10), TKF],
+    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: Object.assign({ emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, AVA(f, 'tg-her')), titleK: TK(f), status: f.status, typing_until: 'start', height: 420, scale: 1.3,
       msgs: [{ text: c.part(0, 2), at: c.at(0, 2), time: f.time }, { text: c.part(1, 2), at: c.at(1, 2), time: f.time }] } }) });
 
   add({ id: 'tg-group', name: 'Telegram: групповой чат', cat: 'Переписка', lines: 1,
     fields: [F('name', 'Название чата', 'houmie 🌿'), F('emoji', 'Аватар', '🌿', 'emoji'),
       F('n1', 'Друг 1', 'leartz'), F('m1', 'Сообщение 1', 'а скок раз мы уже дунули?'),
       F('n2', 'Друг 2', 'vissking'), F('m2', 'Сообщение 2', 'бро, где-то 432 раза за неделю'),
-      F('n3', 'Друг 3', '432hz'), F('m3', 'Сообщение 3', 'пора бы бросать ваще.'), F('color', 'Цвет аватара', '#00B36B', 'color'), F('img', 'Фото чата', '', 'image')],
-    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: { emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#9BE15D,#00B36B)') }, status: 'участников: 4', typing_until: 'start', height: 470, scale: 1.3,
+      F('n3', 'Друг 3', '432hz'), F('m3', 'Сообщение 3', 'пора бы бросать ваще.'), F('color', 'Цвет аватара', '#00B36B', 'color'), F('img', 'Фото чата', '', 'image'),
+      F('status', 'Статус', 'участников: 4'), F('time', 'Время', '04:21'), ...AVF(-100, 10, -10, 10), TKF],
+    make: (f, c) => ({ widget: { type: 'tg', name: f.name, avatar: Object.assign({ emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#9BE15D,#00B36B)') }, AVA(f, 'tg-group')), titleK: TK(f), status: f.status, typing_until: 'start', height: 470, scale: 1.3,
       msgs: [[f.n1, f.m1, '#E0567A'], [f.n2, f.m2, '#2A9DF4'], [f.n3, f.m3, '#8B3DFF']].filter(x => x[1]).map(x => ({ from: x[0], fromColor: x[2], text: x[1], at: { t: 0 }, time: '04:20' }))
-        .concat([{ me: true, text: c.all, at: c.at(0, 1), time: '04:21' }]) } }) });
+        .concat([{ me: true, text: c.all, at: c.at(0, 1), time: f.time }]) } }) });
 
   add({ id: 'tg-feed', name: 'Telegram: прокрутка по дням', cat: 'Переписка', lines: 1,
-    fields: [F('name', 'Контакт', 'Она 💕'), F('texts', 'Сообщения по кругу (через |)', 'ты дурак!|ты дурак!!|дурак 🙄'), F('react', 'Реакция', '🤡', 'emoji'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), STRIP],
-    make: (f, c) => ({ widget: { type: 'tgfeed', name: f.name, avatar: { emoji: f.emoji || '💕', img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, status: 'в сети', texts: f.texts.split('|'), at: c.word(0), dur: 1.1,
+    fields: [F('name', 'Контакт', 'Она 💕'), F('texts', 'Сообщения по кругу (через |)', 'ты дурак!|ты дурак!!|дурак 🙄'), F('react', 'Реакция', '🤡', 'emoji'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), F('status', 'Статус', 'в сети'), ...AVF(-100, 10, -10, 10), TKF, STRIP],
+    make: (f, c) => ({ widget: { type: 'tgfeed', name: f.name, avatar: Object.assign({ emoji: f.emoji || '💕', img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, AVA(f, 'tg-feed')), titleK: TK(f), status: f.status, texts: f.texts.split('|'), at: c.word(0), dur: 1.1,
       accent_at: c.word(Math.floor(c.n / 2)), react: f.react, react_at: c.word(Math.max(0, c.n - 2)), height: 380, scale: 1.3, lyric: strip(f, 'note', { icon: '🙄' }) } }) });
 
   add({ id: 'notifs', name: 'Экран блокировки + уведомления', cat: 'Переписка', lines: 2,
-    fields: [F('time', 'Время', '13:37'), F('date', 'Дата', 'понедельник, 2 ноября'), F('app1', 'Приложение 1', 'Будильник'), F('ic1', 'Значок 1', '⏰', 'emoji'),
-      F('app2', 'Приложение 2', 'Telegram'), F('ic2', 'Значок 2', '💬', 'emoji'), F('title2', 'Заголовок 2', '')],
-    make: (f, c) => ({ widget: { type: 'notifs', lock: { date: f.date, time: f.time }, scale: 1.18,
-      items: [{ app: f.app1, icon: f.ic1, color: '#FF9F0A', text: c.part(0, 2), at: c.at(0, 2) }, { app: f.app2, icon: f.ic2, color: '#2AABEE', title: f.title2 || undefined, text: c.part(1, 2), at: c.at(1, 2) }] } }) });
+    fields: [F('time', 'Время', '13:37'), F('date', 'Дата', 'понедельник, 2 ноября'), F('app1', 'Приложение 1', 'Будильник'), F('ic1', 'Значок 1', '⏰', 'emoji'), F('cl1', 'Цвет значка 1', '#FF9F0A', 'color'), F('title1', 'Заголовок 1', ''),
+      F('app2', 'Приложение 2', 'Telegram'), F('ic2', 'Значок 2', '💬', 'emoji'), F('cl2', 'Цвет значка 2', '#2AABEE', 'color'), F('title2', 'Заголовок 2', ''), F('ntime', 'Время уведомлений', 'сейчас'), TKF],
+    make: (f, c) => ({ widget: { type: 'notifs', lock: { date: f.date, time: f.time }, scale: 1.18, titleK: TK(f),
+      items: [{ app: f.app1, icon: f.ic1, color: f.cl1, title: f.title1 || undefined, time: f.ntime, text: c.part(0, 2), at: c.at(0, 2) }, { app: f.app2, icon: f.ic2, color: f.cl2, title: f.title2 || undefined, time: f.ntime, text: c.part(1, 2), at: c.at(1, 2) }] } }) });
 
   add({ id: 'call', name: 'Входящий звонок', cat: 'Переписка', lines: 2,
-    fields: [F('name', 'Кто звонит', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('sub', 'Подпись', 'входящий вызов'), F('after', 'Подпись после ответа', 'соединение…'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), STRIP],
-    make: (f, c) => ({ widget: { type: 'call', style: 'card', name: f.name, sub: f.sub, avatar: { emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, decline: 'Позже', at: c.word(0),
-      end: { at: c.word(Math.max(0, c.n - 1)), action: 'accept', sub: f.after }, scale: 1.3, lyric: strip(f, 'status', { icon: '📞' }) } }) });
+    fields: [F('name', 'Кто звонит', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('sub', 'Подпись', 'входящий вызов'), F('after', 'Подпись после ответа', 'соединение…'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), ...AVF(-100, 100, -28, 20), TKF,
+      F('accept', 'Ответить в конце', true, 'bool'), STRIP],
+    make: (f, c) => ({ widget: { type: 'call', style: 'card', name: f.name, sub: f.sub, avatar: Object.assign({ emoji: f.emoji, img: f.img || undefined, color: GRAD(f.color, 'linear-gradient(180deg,#FF8FB1,#FF2D55)') }, AVA(f, 'call')), titleK: TK(f), decline: 'Позже', at: c.word(0),
+      end: f.accept ? { at: c.word(Math.max(0, c.n - 1)), action: 'accept', sub: f.after } : undefined, scale: 1.3, lyric: strip(f, 'status', { icon: '📞' }) } }) });
 
   add({ id: 'typing', name: 'Тёмная карточка: печатает строку', cat: 'Переписка', lines: 1,
     fields: [F('emoji', 'Эмодзи в конце', '✨', 'emoji')],
@@ -69,9 +82,9 @@
       seal_at: c.word(Math.max(0, c.n - 2)), sealMid: f.seal, sealColor: f.sealColor, sealRight: 12, sealBottom: -24, scale: 1.3 } }) });
 
   add({ id: 'record', name: 'Медкарта / анкета', cat: 'Документы', lines: 1,
-    fields: [F('title', 'Заголовок', 'Медкарта'), F('name', 'Имя', 'melhor'), F('r1', 'Строка 1: поле', 'горло'), F('v1', 'Строка 1: значение', 'болит'),
+    fields: [F('title', 'Заголовок', 'Медкарта'), F('name', 'Имя', 'melhor'), F('sub', 'Подпись', 'приём сегодня'), F('emoji', 'Аватар', '🤒', 'emoji'), F('color', 'Цвет аватара', '#FF9F0A', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), ...AVF(-10, 20, -6, 6), F('r1', 'Строка 1: поле', 'горло'), F('v1', 'Строка 1: значение', 'болит'),
       F('r2', 'Строка 2: поле', 'назначено'), F('v2', 'Строка 2: значение', 'лечиться 💊'), STRIP],
-    make: (f, c) => ({ widget: { type: 'record', title: f.title, icon: '🩺', color: '#FF3B30', name: f.name, sub: 'приём сегодня', avatar: { emoji: '🤒', color: 'linear-gradient(180deg,#FFD66B,#FF9F0A)' },
+    make: (f, c) => ({ widget: { type: 'record', title: f.title, icon: '🩺', color: '#FF3B30', name: f.name, sub: f.sub, avatar: Object.assign({ emoji: f.emoji, img: f.img || undefined, color: GD(f.color, '#FF9F0A', 'linear-gradient(180deg,#FFD66B,#FF9F0A)') }, AVA(f, 'record')),
       rows: [{ label: f.r1, value: f.v1, mark: '✕', markColor: '#FF3B30', at: c.word(1) }, { label: f.r2, value: f.v2, mark: '✓', markColor: '#16A34A', at: c.word(Math.floor(c.n / 2)) }],
       scale: 1.3, lyric: strip(f, 'note', { icon: '🤒' }) } }) });
 
@@ -170,12 +183,12 @@
     make: (f, c) => ({ widget: { type: 'leanrain', city: f.city, text: f.text, at: c.word(0), scale: 1.35, lyric: strip(f, 'ticker', { label: 'Сейчас: ' }) } }) });
 
   add({ id: 'recorder', name: 'Диктофон: идёт запись', cat: 'Состояние', lines: 1,
-    fields: [F('title', 'Название записи', 'Фристайл'), F('sub', 'Подпись', 'Запись · сегодня'), STRIP],
-    make: (f, c) => ({ widget: { type: 'recorder', title: f.title, sub: f.sub, at: c.word(0), scale: 1.35, lyric: strip(f, 'transcript', { label: 'Расшифровка' }) } }) });
+    fields: [F('title', 'Название записи', 'Фристайл'), F('sub', 'Подпись', 'Запись · сегодня'), F('app', 'Приложение', 'Диктофон'), STRIP],
+    make: (f, c) => ({ widget: { type: 'recorder', app: f.app, title: f.title, sub: f.sub, at: c.word(0), scale: 1.35, lyric: strip(f, 'transcript', { label: 'Расшифровка' }) } }) });
 
   add({ id: 'player', name: 'Плеер: строка = название трека', cat: 'Музыка', lines: 1,
-    fields: [F('artist', 'Артист', 'melhor'), F('emoji', 'Обложка', '🌿', 'emoji'), F('img', 'Обложка-картинка', '', 'image')],
-    make: (f, c) => ({ widget: { type: 'player', title: c.all, artist: f.artist, emoji: f.emoji, img: f.img || undefined, scale: 1.45 } }) });
+    fields: [F('artist', 'Артист', 'melhor'), F('emoji', 'Обложка', '🌿', 'emoji'), F('img', 'Обложка-картинка', '', 'image'), F('color', 'Цвет акцента', '#FF5E62', 'color'), TKF],
+    make: (f, c) => ({ widget: { type: 'player', title: c.all, artist: f.artist, emoji: f.emoji, img: f.img || undefined, cover: GD(f.color, '#FF5E62', undefined), accent: f.color, titleK: TK(f), scale: 1.45 } }) });
 
   // ---------- Дорога ----------
   add({ id: 'drive', name: 'Дорога: машина едет мимо', cat: 'Дорога', lines: 2,
@@ -190,45 +203,45 @@
   // ---------- 0.2: новые шаблоны ----------
   const AV = (f, emoji, color) => ({ emoji: f.emoji || emoji, img: f.img || undefined, color: GRAD(f.color, color) });
   add({ id: 'imsg-dialog', name: 'iMessage: диалог (она → я)', cat: 'Переписка', lines: 2,
-    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), F('status', 'Подпись под моим', 'Прочитано')],
-    make: (f, c) => ({ widget: { type: 'chat', name: f.name, avatar: AV(f, '💕', 'linear-gradient(180deg,#FF8FB199,#FF2D55)'), height: 420, scale: 1.27,
+    fields: [F('name', 'Контакт', 'Она 💕'), F('emoji', 'Аватар', '💕', 'emoji'), F('color', 'Цвет аватара', '#FF2D55', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), ...AVF(-150, 150, -12, 12), TKF, F('status', 'Подпись под моим', 'Прочитано'), F('keyboard', 'Клавиатура', false, 'bool')],
+    make: (f, c) => ({ widget: { type: 'chat', name: f.name, avatar: Object.assign(AV(f, '💕', 'linear-gradient(180deg,#FF8FB199,#FF2D55)'), AVA(f, 'imsg-dialog')), titleK: TK(f), keyboard: !!f.keyboard, height: f.keyboard ? 540 : 420, scale: 1.27,
       msgs: [{ text: c.part(0, 2), at: c.at(0, 2) }, { me: true, text: c.part(1, 2), at: c.at(1, 2), status: f.status || undefined, status_at: 'end-0.9' }] } }) });
 
   add({ id: 'callfull', name: 'Звонок на весь экран', cat: 'Переписка', lines: 1,
-    fields: [F('name', 'Кто звонит', 'Мама ❤️'), F('sub', 'Подпись', 'мобильный'), F('emoji', 'Аватар', '👩', 'emoji'), F('color', 'Цвет аватара', '#FF5C8A', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'),
+    fields: [F('name', 'Кто звонит', 'Мама ❤️'), F('sub', 'Подпись', 'мобильный'), F('emoji', 'Аватар', '👩', 'emoji'), F('color', 'Цвет аватара', '#FF5C8A', 'color'), F('img', 'Фото (вместо эмодзи)', '', 'image'), ...AVF(-80, 80, -50, 40), TKF,
       F('accept', 'Ответить в конце', true, 'bool'), STRIP],
-    make: (f, c) => ({ widget: { type: 'callfull', name: f.name, sub: f.sub, avatar: AV(f, '👩', 'linear-gradient(180deg,#FFB1C8,#FF5C8A)'), accept_at: f.accept ? c.word(Math.max(0, c.n - 1)) : undefined, scale: 0.92,
+    make: (f, c) => ({ widget: { type: 'callfull', name: f.name, sub: f.sub, avatar: Object.assign(AV(f, '👩', 'linear-gradient(180deg,#FFB1C8,#FF5C8A)'), AVA(f, 'callfull')), titleK: TK(f), accept_at: f.accept ? c.word(Math.max(0, c.n - 1)) : undefined, scale: 0.92,
       lyric: strip(f, 'status', { icon: '📞' }) } }) });
 
   add({ id: 'server', name: 'Сервер-чат (тёмный, каналы)', cat: 'Переписка', lines: 1,
-    fields: [F('channel', 'Канал', 'общий'), F('me', 'Мой ник', 'melhor'), F('img', 'Моя аватарка', '', 'image'),
+    fields: [F('channel', 'Канал', 'общий'), F('me', 'Мой ник', 'melhor'), F('img', 'Моя аватарка', '', 'image'), F('emoji', 'Мой аватар (эмодзи)', '', 'emoji'), F('color', 'Цвет ника и аватара', '#F0B232', 'color'), ...AVF(-14, 20, -10, 10),
       F('n1', 'Друг 1', 'leartz'), F('m1', 'Сообщение 1', 'кто на созвон?'), F('n2', 'Друг 2', 'vissking'), F('m2', 'Сообщение 2', 'я тут, пишу трек'), F('react', 'Реакция на моё', '🔥', 'emoji')],
-    make: (f, c) => ({ widget: { type: 'server', channel: f.channel, me: f.me, meAvatar: f.img ? { img: f.img } : undefined, text: c.all, at: c.word(0), react: f.react || undefined, react_at: c.word(Math.max(0, c.n - 1)), reactN: 23, height: 500, scale: 1.25,
+    make: (f, c) => ({ widget: { type: 'server', channel: f.channel, me: f.me, meAvatar: f.img ? { img: f.img } : f.emoji ? { emoji: f.emoji, color: f.color } : undefined, meColor: f.color, avAdj: AVA(f, 'server'), text: c.all, at: c.word(0), react: f.react || undefined, react_at: c.word(Math.max(0, c.n - 1)), reactN: 23, height: 500, scale: 1.25,
       msgs: [[f.n1, f.m1, '#3BA55D'], [f.n2, f.m2, '#EB459E']].filter(x => x[1]).map(x => ({ name: x[0], text: x[1], color: x[2], time: 'Сегодня, в 04:1' + (x[2] === '#3BA55D' ? '8' : '9') })) } }) });
 
   // ---------- Соцсети ----------
   add({ id: 'vc-sheet', name: 'Комментарии под видео (шторка)', cat: 'Соцсети', lines: 1,
-    fields: [F('me', 'Мой ник', 'melhor'), F('img', 'Моя аватарка', '', 'image'), F('likes', 'Лайков на моём', 1337, 'number'), F('count', 'Всего комментариев', 482, 'number'),
+    fields: [F('me', 'Мой ник', 'melhor'), F('img', 'Моя аватарка', '', 'image'), F('emoji', 'Мой аватар (эмодзи)', '', 'emoji'), F('color', 'Цвет аватара', '#FE2C55', 'color'), ...AVF(-14, 20, -6, 10), F('likes', 'Лайков на моём', 1337, 'number'), F('count', 'Всего комментариев', 482, 'number'),
       F('u1', 'Ник 1', 'leartz'), F('c1', 'Комментарий 1', 'это шедевр 😭'), F('u2', 'Ник 2', 'vissking'), F('c2', 'Комментарий 2', 'кто в 2026?'), F('dark', 'Тёмная тема', false, 'bool')],
-    make: (f, c) => ({ widget: { type: 'vcomments', style: 'sheet', dark: !!f.dark, me: f.me, meAvatar: f.img ? { img: f.img } : undefined, text: c.all, at: c.word(0), likes: +f.likes, count: +f.count, like_at: c.word(Math.max(0, c.n - 1)), scale: 1.25,
+    make: (f, c) => ({ widget: { type: 'vcomments', style: 'sheet', dark: !!f.dark, me: f.me, meAvatar: f.img ? { img: f.img } : f.emoji || (f.color && f.color !== '#FE2C55') ? { i: (f.me || 'm')[0], emoji: f.emoji || undefined, color: f.color } : undefined, avAdj: AVA(f, 'vc-sheet'), text: c.all, at: c.word(0), likes: +f.likes, count: +f.count, like_at: c.word(Math.max(0, c.n - 1)), scale: 1.25,
       items: [[f.u1, f.c1, 812], [f.u2, f.c2, 96]].filter(x => x[1]).map(x => ({ user: x[0], text: x[1], likes: x[2], time: '1 д' })) } }) });
 
   add({ id: 'vc-list', name: 'Комментарии с лайками (список)', cat: 'Соцсети', lines: 1,
-    fields: [F('me', 'Мой ник', 'melhor'), F('img', 'Моя аватарка', '', 'image'), F('likes', 'Лайков на моём', 4200, 'number'), F('count', 'Всего комментариев', 1290, 'number'),
+    fields: [F('me', 'Мой ник', 'melhor'), F('img', 'Моя аватарка', '', 'image'), F('emoji', 'Мой аватар (эмодзи)', '', 'emoji'), F('color', 'Цвет аватара', '#FE2C55', 'color'), ...AVF(-14, 20, -6, 10), F('likes', 'Лайков на моём', 4200, 'number'), F('count', 'Всего комментариев', 1290, 'number'),
       F('u1', 'Ник 1', 'leartz'), F('c1', 'Комментарий 1', 'переслушал 100 раз'), F('u2', 'Ник 2', 'vissking'), F('c2', 'Комментарий 2', 'кто тоже из рекомендаций?'), F('dark', 'Тёмная тема', true, 'bool')],
-    make: (f, c) => ({ widget: { type: 'vcomments', style: 'list', dark: !!f.dark, me: f.me, meAvatar: f.img ? { img: f.img } : undefined, text: c.all, at: c.word(0), likes: +f.likes, count: +f.count, like_at: c.word(Math.max(0, c.n - 1)), mePos: 'top', scale: 1.25,
+    make: (f, c) => ({ widget: { type: 'vcomments', style: 'list', dark: !!f.dark, me: f.me, meAvatar: f.img ? { img: f.img } : f.emoji || (f.color && f.color !== '#FE2C55') ? { i: (f.me || 'm')[0], emoji: f.emoji || undefined, color: f.color } : undefined, avAdj: AVA(f, 'vc-list'), text: c.all, at: c.word(0), likes: +f.likes, count: +f.count, like_at: c.word(Math.max(0, c.n - 1)), mePos: 'top', scale: 1.25,
       items: [[f.u1, f.c1, 2100], [f.u2, f.c2, 340]].filter(x => x[1]).map(x => ({ user: x[0], text: x[1], likes: x[2], time: '3 дня назад' })) } }) });
 
   add({ id: 'post', name: 'Пост в ленте (с лайками)', cat: 'Соцсети', lines: 2,
-    fields: [F('name', 'Имя', 'melhor'), F('handle', 'Ник', 'melhor'), F('img', 'Аватарка', '', 'image'), F('pic', 'Картинка в посте (необязательно)', '', 'image'),
+    fields: [F('name', 'Имя', 'melhor'), F('handle', 'Ник', 'melhor'), F('img', 'Аватарка', '', 'image'), F('emoji', 'Аватар (эмодзи)', '', 'emoji'), F('color', 'Цвет аватара', '#C04CFD', 'color'), ...AVF(-14, 20, -14, 20), F('time', 'Время', '1 ч'), F('pic', 'Картинка в посте (необязательно)', '', 'image'),
       F('likes', 'Лайков', 13700, 'number'), F('views', 'Просмотров', 250000, 'number'), F('verified', 'Галочка', true, 'bool'), F('dark', 'Тёмная тема', false, 'bool')],
-    make: (f, c) => ({ widget: { type: 'post', name: f.name, handle: f.handle, avatar: f.img ? { img: f.img } : { i: (f.name || '?')[0], color: 'linear-gradient(135deg,#7B61FF,#C04CFD)' }, img: f.pic || undefined, verified: !!f.verified, dark: !!f.dark,
+    make: (f, c) => ({ widget: { type: 'post', name: f.name, handle: f.handle, avatar: Object.assign(f.img ? { img: f.img } : { i: (f.name || '?')[0], emoji: f.emoji || undefined, color: GD(f.color, '#C04CFD', 'linear-gradient(135deg,#7B61FF,#C04CFD)') }, AVA(f, 'post')), time: f.time, img: f.pic || undefined, verified: !!f.verified, dark: !!f.dark,
       text: c.all, at: c.word(0), likes: +f.likes, views: +f.views, like_at: c.word(Math.max(0, c.n - 1)), scale: f.pic ? 1.12 : 1.25 } }) });
 
   add({ id: 'story', name: 'Сторис: текст-стикер по словам', cat: 'Соцсети', lines: 1,
-    fields: [F('name', 'Имя', 'melhor'), F('img', 'Аватарка', '', 'image'), F('bgimg', 'Фон сторис (картинка)', '', 'image'), F('bg', 'Фон, если без картинки', '#DD2A7B', 'color'),
+    fields: [F('name', 'Имя', 'melhor'), F('img', 'Аватарка', '', 'image'), F('emoji', 'Аватар (эмодзи)', '', 'emoji'), ...AVF(-10, 20, -10, 20), F('time', 'Время', '2 ч'), F('bgimg', 'Фон сторис (картинка)', '', 'image'), F('bg', 'Фон, если без картинки', '#DD2A7B', 'color'),
       F('box', 'Подложка текста', '#000000', 'color'), F('color', 'Цвет текста', '#FFFFFF', 'color'), F('like', 'Лайк в конце', true, 'bool')],
-    make: (f, c) => ({ widget: { type: 'story', name: f.name, avatar: f.img ? { img: f.img } : { i: (f.name || '?')[0], color: f.bg }, img: f.bgimg || undefined, bg: `linear-gradient(160deg,${f.bg} 0%,#8134AF 100%)`,
+    make: (f, c) => ({ widget: { type: 'story', name: f.name, avatar: Object.assign(f.img ? { img: f.img } : { i: (f.name || '?')[0], emoji: f.emoji || undefined, color: f.bg }, AVA(f, 'story')), time: f.time, img: f.bgimg || undefined, bg: `linear-gradient(160deg,${f.bg} 0%,#8134AF 100%)`,
       box: f.box + 'D9', color: f.color, text: c.all, like_at: f.like ? c.word(Math.max(0, c.n - 1)) : undefined, scale: 0.92 } }) });
 
   // ---------- Музыка ----------
