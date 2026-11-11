@@ -337,7 +337,7 @@ function updateTransport(t) {
   $('#tCur').textContent = fmtT(t); $('#tEnd').textContent = fmtT(e);
   if (!$('#scrub')._drag) $('#scrub').value = Math.round(1000 * (t - s) / Math.max(.01, e - s));
   const k = sceneAt(t);
-  if (playing && k >= 0 && k !== sel) { sel = k; renderStrip(); renderScene(); }
+  if (playing && k >= 0 && k !== sel && !Focus.typingIn('#sceneEditor')) { sel = k; renderStrip(); renderScene(); }
 }
 function sceneAt(t) { return proj.scenes.findIndex((sc, i) => { const n = proj.scenes[i + 1]; return t < (n && proj.words[n.a] ? proj.words[n.a].t - .1 : 1e9); }); }
 function loop() {
@@ -475,7 +475,7 @@ function wordsToLines(words) {
 }
 $('#bRecog').onclick = async () => {
   if (!proj.audioPath) return toast('Сначала выберите трек');
-  if ($('#lyrics').value.trim() && !confirm('Заменить текст в поле распознанным с трека?')) return;
+  if ($('#lyrics').value.trim() && !await Dialogs.confirm('Заменить текст в поле распознанным с трека?', { ok: 'Заменить' })) return;
   proj.alFrom = $('#alFrom').value; proj.alTo = $('#alTo').value; proj.lang = $('#alLang').value; proj.vocals = $('#alVocals').checked; proj.vocalsQ = $('#alVocalsQ').value;
   const st = $('#alignStatus'); st.className = 'status'; st.textContent = 'Готовлюсь…'; alBusy(true);
   try {
@@ -584,7 +584,7 @@ function autoScenes() {
   }
   sel = 0; msel = new Set([0]);
 }
-$('#bAutoScenes').onclick = () => { if (!proj.words.length) return toast('Сначала синхронизируйте слова'); if (!confirm('Пересобрать сцены? Текущие настройки сцен пропадут (можно вернуть через Ctrl+Z).')) return; autoScenes(); renderAll(); scheduleRebuild(50); };
+$('#bAutoScenes').onclick = async () => { if (!proj.words.length) return toast('Сначала синхронизируйте слова'); if (!await Dialogs.confirm('Пересобрать сцены? Текущие настройки сцен пропадут (можно вернуть через Ctrl+Z).', { ok: 'Пересобрать' })) return; autoScenes(); renderAll(); scheduleRebuild(50); };
 $$('#perScene button').forEach(b => b.onclick = () => { proj.perScene = +b.dataset.v; $$('#perScene button').forEach(x => x.classList.toggle('on', x === b)); });
 
 // ---------- слова ----------
@@ -804,8 +804,8 @@ function openGallery(second) {
   $('#gGrid').innerHTML = list.map(t => `<div class="tp" data-id="${t.id}"><img src="${thumb(t.id)}" onerror="this.style.visibility='hidden'"><b>${esc(t.name)}</b><span>${t.lines === 1 ? '1 строка' : t.lines + ' строки'}${t.nocard ? ' · без карточки' : ''}</span></div>`).join('');
   if (gCat === 'Мои' || (gCat === 'Все' && Object.keys(USER_TPL).length)) $('#gGrid').insertAdjacentHTML('afterbegin', Object.entries(USER_TPL).map(([k, u]) => `<div class="tp" data-u="${esc(k)}"><img src="${u.thumb || thumb(u.base)}" onerror="this.style.visibility='hidden'"><i class="del" title="Удалить">✕</i><b>${esc(k)}</b><span>мой · ${esc((TPL[u.base] || {}).name || u.base)}</span></div>`).join(''));
   if (gCat === 'Мои') $$('#gGrid .tp:not([data-u])').forEach(x => x.remove());
-  $$('#gGrid .tp').forEach(d => d.onclick = e => {
-    if (d.dataset.u && e.target.classList.contains('del')) { if (!confirm(`Удалить шаблон «${d.dataset.u}»?`)) return; delete USER_TPL[d.dataset.u]; api.saveUserTemplates(USER_TPL); openGallery(); return; }
+  $$('#gGrid .tp').forEach(d => d.onclick = async e => {
+    if (d.dataset.u && e.target.classList.contains('del')) { if (!await Dialogs.confirm(`Удалить шаблон «${d.dataset.u}»?`, { ok: 'Удалить', danger: true })) return; delete USER_TPL[d.dataset.u]; api.saveUserTemplates(USER_TPL); openGallery(); return; }
     const ts = targets();
     ts.forEach(i => { const sc = proj.scenes[i];
       if (gSecond) { const u = d.dataset.u && USER_TPL[d.dataset.u]; sc.tpl2 = u ? u.base : d.dataset.id; sc.f2 = u ? JSON.parse(JSON.stringify(u.f || {})) : {}; }
@@ -836,9 +836,9 @@ $('#se2Del').onclick = () => { targets().forEach(i => { const sc = proj.scenes[i
 function renderPresets() {
   const all = Object.keys(PRESETS).concat(Object.keys(USER_PRESETS).filter(k => !PRESETS[k]));
   $('#presetGrid').innerHTML = all.map(k => `<div class="pr ${k === proj.style.preset ? 'on' : ''} ${PRESETS[k] ? '' : 'user'}" data-k="${esc(k)}" title="${esc(PRESET_INFO[k] || 'мой пресет')}"><img src="${USER_PRESETS[k] && USER_PRESETS[k].__thumb && !PRESETS[k] ? USER_PRESETS[k].__thumb : 'presets/' + esc(k) + '.jpg'}" onerror="this.style.visibility='hidden'">${esc(k)}${PRESETS[k] ? '' : '<i class="del" title="Удалить пресет">✕</i>'}</div>`).join('');
-  $$('#presetGrid .pr').forEach(d => d.onclick = e => {
+  $$('#presetGrid .pr').forEach(d => d.onclick = async e => {
     const k = d.dataset.k;
-    if (e.target.classList.contains('del')) { if (!confirm(`Удалить пресет «${k}»?`)) return; delete USER_PRESETS[k]; api.saveUserPresets(USER_PRESETS); if (proj.style.preset === k) proj.style.preset = 'melhor-lenta'; renderPresets(); scheduleRebuild(50); return; }
+    if (e.target.classList.contains('del')) { if (!await Dialogs.confirm(`Удалить пресет «${k}»?`, { ok: 'Удалить', danger: true })) return; delete USER_PRESETS[k]; api.saveUserPresets(USER_PRESETS); if (proj.style.preset === k) proj.style.preset = 'melhor-lenta'; renderPresets(); scheduleRebuild(50); return; }
     proj.style.preset = k; const p = PRESETS[k] || USER_PRESETS[k] || {}; if (p.format) proj.style.format = p.format;
     if (USER_PRESETS[k] && USER_PRESETS[k].__fx) proj.style.fx = Object.assign({ grain: 0, vhs: 0, aberr: 0, shake: 0 }, USER_PRESETS[k].__fx);
     renderPresets(); fillStyle(); scheduleRebuild(50);
@@ -1003,7 +1003,7 @@ function applyProject(p, path) {
 }
 async function afterLoad() {
   if (proj.audioPath) { try { await loadAudio({ path: proj.audioPath, name: proj.audioName }); } catch (e) { audio.removeAttribute('src'); audioData = null; $('#audioName').textContent = (proj.audioName || 'трек') + ' — не найден';
-      if (confirm(`Трек «${proj.audioName || ''}» не найден по старому пути: файл переместили или переименовали. Указать, где он лежит?`)) { const info = await api.pickAudio(); if (info) { try { await loadAudio(info); touch(); toast('Трек подключён заново'); } catch (x) { toastErr('Не удалось прочитать файл: ' + x.message); } } }
+      if (await Dialogs.confirm(`Трек «${proj.audioName || ''}» не найден по старому пути: файл переместили или переименовали. Указать, где он лежит?`, { ok: 'Указать файл…', cancel: 'Не сейчас' })) { const info = await api.pickAudio(); if (info) { try { await loadAudio(info); touch(); toast('Трек подключён заново'); } catch (x) { toastErr('Не удалось прочитать файл: ' + x.message); } } }
       else toast('Трек не подключён — выберите его кнопкой «Выбрать файл…»', 4500); } }
   renderAll(); Timeline.fit(); histReset(); dirty = false; updTitle(); rebuildPreview();
 }
@@ -1020,13 +1020,13 @@ async function saveProject(as) {
   if (p) { projPath = p; dirty = false; updTitle(); api.clearAutosave(); toast('Сохранено'); }
 }
 async function openProject(path) {
-  if (dirty && proj.words.length && !confirm('Текущий проект не сохранён. Открыть другой?')) return;
+  if (dirty && proj.words.length && !await Dialogs.confirm('Текущий проект не сохранён. Открыть другой?', { ok: 'Открыть' })) return;
   const r = await api.openProject(path); if (!r) return;
   let p; try { p = JSON.parse(r.json); } catch (e) { return toastErr('Файл проекта повреждён'); }
   applyProject(p, r.path); await afterLoad();
 }
-function newFrom(keepStyle) {
-  if (dirty && proj.words.length && !confirm('Начать новый проект? Несохранённые изменения пропадут.')) return;
+async function newFrom(keepStyle) {
+  if (dirty && proj.words.length && !await Dialogs.confirm('Начать новый проект? Несохранённые изменения пропадут.', { ok: 'Начать новый' })) return;
   const old = proj, np = newProject();
   if (keepStyle) {
     np.style = JSON.parse(JSON.stringify(old.style)); Object.assign(np.style, { start: 0, end: 0, title: '', hook: '' }); np.style.intro.title = '';
@@ -1157,9 +1157,9 @@ function parseTimings(text) {
   else { text.split(/\r?\n/).forEach(ln => { const ts = [...ln.matchAll(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g)], tx = ln.replace(/\[[^\]]*\]/g, '').replace(/<\d+:\d+(?:\.\d+)?>/g, '').trim(); if (!ts.length || !tx) return; ts.forEach(m => L.push({ t: +m[1] * 60 + parseFloat(m[2].replace(':', '.')), text: tx })); }); L.sort((x, y) => x.t - y.t); }
   return L;
 }
-function importTimings(text, name) {
+async function importTimings(text, name) {
   const L = parseTimings(text); if (!L.length) return toastErr('В файле не нашлось строк с временем — нужен LRC или SRT');
-  if (proj.words.length && !confirm('Заменить текст и тайминги проекта данными из файла?')) return;
+  if (proj.words.length && !await Dialogs.confirm('Заменить текст и тайминги проекта данными из файла?', { ok: 'Заменить' })) return;
   const words = [];
   L.forEach((l, i) => { const ws = l.text.split(/\s+/).filter(Boolean), next = L[i + 1] ? L[i + 1].t : 1e9, end = Math.max(l.t + .3, Math.min(l.e != null ? l.e : 1e9, next - .05, l.t + Math.max(1.2, ws.length * .55))), total = ws.reduce((a, w) => a + [...w].length + 1, 0); let acc = 0;
     ws.forEach(w => { const d = ([...w].length + 1) / total * (end - l.t); words.push({ w, t: +(l.t + acc).toFixed(2), e: +(l.t + acc + d * .9).toFixed(2), line: i }); acc += d; }); });
@@ -1190,6 +1190,7 @@ async function dropFile(path) {
   window.addEventListener('dragenter', e => { if (!files(e)) return; e.preventDefault(); depth++; ov.hidden = false; });
   window.addEventListener('dragover', e => { if (files(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
   window.addEventListener('dragleave', e => { if (!files(e)) return; depth = Math.max(0, depth - 1); if (!depth) ov.hidden = true; });
+  window.addEventListener('pointermove', () => { if (depth || !ov.hidden) { depth = 0; ov.hidden = true; } }); // во время перетаскивания мышь не шлёт событий — значит, оно кончилось
   window.addEventListener('drop', e => { if (!files(e)) return; e.preventDefault(); depth = 0; ov.hidden = true; const f = e.dataTransfer.files[0], p = f && api.pathOf ? api.pathOf(f) : ''; if (p) dropFile(p); else if (f) toast('Не удалось получить путь к файлу'); }); }
 // ---------- модели нейросетей: что скачано, сколько занимает ----------
 let mdBusy = false;
@@ -1201,7 +1202,7 @@ async function renderModels() {
   $('#mdTotal').textContent = T('Всего на диске') + ': ' + mb(total);
   box.querySelectorAll('button').forEach(b => b.onclick = async () => {
     if (mdBusy) return; const st = $('#mdStatus');
-    if (b.dataset.a === 'del') { if (!confirm('Удалить модель с диска? Она скачается заново, когда понадобится.')) return; await api.modelDelete(b.dataset.k); st.className = 'status'; st.textContent = ''; return renderModels(); }
+    if (b.dataset.a === 'del') { if (!await Dialogs.confirm('Удалить модель с диска? Она скачается заново, когда понадобится.', { ok: 'Удалить', danger: true })) return; await api.modelDelete(b.dataset.k); st.className = 'status'; st.textContent = ''; return renderModels(); }
     mdBusy = true; $('#mdCancel').hidden = false; st.className = 'status'; st.textContent = 'Готовлюсь…';
     try { await api.modelGet(b.dataset.k, t => { st.textContent = t; }); st.className = 'status ok'; st.textContent = 'Модель скачана.'; }
     catch (e) { if (wasCancelled(e)) { st.className = 'status'; st.textContent = 'Отменено.'; } else { st.className = 'status err'; st.textContent = 'Ошибка: ' + (e.message || e); } }
@@ -1405,12 +1406,12 @@ $('#bmGo').onclick = async () => {
 
 // ---------- горячие клавиши ----------
 document.addEventListener('keydown', e => {
-  const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !(document.activeElement.type === 'range' || document.activeElement.type === 'checkbox');
+  const inField = Focus.eatsKey(document.activeElement, e);
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase(), code = e.code;
   if (mod && code === 'KeyS') { e.preventDefault(); saveProject(e.shiftKey); return; }
   if (mod && code === 'KeyO') { e.preventDefault(); openProject(); return; }
   if (mod && code === 'KeyE') { e.preventDefault(); $('#bExport').click(); return; }
-  if (!$('#exportModal').hidden || !$('#gallery').hidden || !$('#keysModal').hidden) { if (e.key === 'Escape') { $('#gallery').hidden = true; $('#keysModal').hidden = true; if (!exporting) $('#exportModal').hidden = true; } return; }
+  if (document.querySelector('.modal:not([hidden])')) { const m = [...document.querySelectorAll('.modal:not([hidden])')].pop(), x = m.querySelector('.mhead button.ghost:last-child'); if (e.key === 'Escape' && x) { e.preventDefault(); x.click(); } return; }
   if (inField) return;
   if (mod && code === 'KeyZ') { e.preventDefault(); histGo(e.shiftKey ? 1 : -1); return; }
   if (mod && code === 'KeyY') { e.preventDefault(); histGo(1); return; }
