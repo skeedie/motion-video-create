@@ -76,6 +76,7 @@ def main():
     ap.add_argument('port', type=int)
     ap.add_argument('--geometry', action='store_true', help='перебор шаблонов × пресетов вместо сценариев')
     ap.add_argument('--formats', default='9:16,16:9')
+    ap.add_argument('--presets', default='', help='только эти пресеты (для отладки; baseline не сверяется полностью)')
     ap.add_argument('--update-baseline', action='store_true')
     ap.add_argument('--only', default='')
     ap.add_argument('--out', default=os.path.join(HERE, 'out'))
@@ -92,7 +93,8 @@ def main():
             browser = p.chromium.launch()
             if a.geometry:
                 import geometry
-                ok = geometry.run(env, browser, [f for f in a.formats.split(',') if f], a.update_baseline, a.out)
+                ok = geometry.run(env, browser, [f for f in a.formats.split(',') if f], a.update_baseline, a.out,
+                                  [x for x in a.presets.split(',') if x])
                 browser.close()
                 return 0 if ok else 1
             import editor

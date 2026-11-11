@@ -52,11 +52,13 @@ async ({fmt, pk, base})=>{
 """.replace('%SIZES%', json.dumps({k: list(v) for k, v in SIZES.items()}))
 
 
-def sweep(env, browser, fmt, log=print):
+def sweep(env, browser, fmt, only=None, log=print):
     first = App(env, browser, viewport=(1500, 1400))
     presets = first.js("[...document.querySelectorAll('#presetGrid .pr')].map(e=>e.dataset.k).filter(Boolean)")
     templates = first.js("TEMPLATES.map(t=>t.id)")
     first.close()
+    if only:
+        presets = [p for p in presets if p in only]
     found, errors = [], []
     for pk in presets:
         t0 = time.time()
@@ -83,13 +85,13 @@ def summarize(found):
     return {t: dict(sorted(c.items())) for t, c in sorted(by.items())}
 
 
-def run(env, browser, formats, update, out_dir):
+def run(env, browser, formats, update, out_dir, only=None):
     base = json.load(open(BASELINE, encoding='utf-8')) if os.path.exists(BASELINE) else {}
     ok, new_base, worse_all, better_all = True, {}, [], []
     raw = {}
     for fmt in formats:
         print(f'формат {fmt}:', flush=True)
-        r = sweep(env, browser, fmt)
+        r = sweep(env, browser, fmt, only)
         raw[fmt] = r
         cur = summarize(r['found'])
         new_base[fmt] = {'total': len(r['found']), 'presets': len(r['presets']), 'templates': len(r['templates']), 'by_template': cur}
@@ -113,6 +115,8 @@ def run(env, browser, formats, update, out_dir):
     print('GEOMETRY_CURRENT ' + json.dumps(new_base, ensure_ascii=False, separators=(',', ':')), flush=True)
     if better_all:
         print('\nСТАЛО ЛУЧШЕ (можно обновить baseline: --update-baseline):\n  ' + '\n  '.join(better_all))
+    if update and only:
+        print('с --presets baseline не обновляется'); return False
     if update:
         merged = dict(base); merged.update(new_base)
         merged['_comment'] = ('Число находок геометрии кадра по формату → шаблону → виду (сумма по всем пресетам и двум сценам). '
