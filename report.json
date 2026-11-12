@@ -1,0 +1,335 @@
+{
+ "frames": [
+  {
+   "name": "frame-9x16-720-0.9.png",
+   "want": [
+    720,
+    1280
+   ],
+   "got": [
+    720,
+    1280
+   ],
+   "info": {
+    "inner": [
+     720,
+     1280,
+     1
+    ],
+    "content": [
+     720,
+     1280
+    ]
+   }
+  },
+  {
+   "name": "frame-9x16-1080-0.9.png",
+   "want": [
+    1080,
+    1920
+   ],
+   "got": [
+    1080,
+    1920
+   ],
+   "info": {
+    "inner": [
+     720,
+     1280,
+     1.5
+    ],
+    "content": [
+     1080,
+     1920
+    ]
+   },
+   "diff720": 0.25
+  },
+  {
+   "name": "frame-9x16-1080-2.4.png",
+   "want": [
+    1080,
+    1920
+   ],
+   "got": [
+    1080,
+    1920
+   ],
+   "info": {
+    "inner": [
+     720,
+     1280,
+     1.5
+    ],
+    "content": [
+     1080,
+     1920
+    ]
+   }
+  },
+  {
+   "name": "frame-9x16-1080-1.5.png",
+   "want": [
+    1080,
+    1920
+   ],
+   "got": [
+    1080,
+    1920
+   ],
+   "info": {
+    "inner": [
+     720,
+     1280,
+     1.5
+    ],
+    "content": [
+     1080,
+     1920
+    ]
+   }
+  },
+  {
+   "name": "frame-9x16-1440-0.9.png",
+   "want": [
+    1440,
+    2560
+   ],
+   "got": [
+    1440,
+    2560
+   ],
+   "info": {
+    "inner": [
+     720,
+     1280,
+     2
+    ],
+    "content": [
+     1440,
+     2560
+    ]
+   },
+   "diff720": 0.27
+  },
+  {
+   "name": "frame-9x16-2160-0.9.png",
+   "want": [
+    2160,
+    3840
+   ],
+   "got": [
+    2160,
+    3840
+   ],
+   "info": {
+    "inner": [
+     720,
+     1280,
+     3
+    ],
+    "content": [
+     2160,
+     3840
+    ]
+   },
+   "diff720": 0.23
+  },
+  {
+   "name": "frame-16x9-1920-0.9.png",
+   "want": [
+    1920,
+    1080
+   ],
+   "got": [
+    1920,
+    1080
+   ],
+   "info": {
+    "inner": [
+     1280,
+     720,
+     1.5
+    ],
+    "content": [
+     1920,
+     1080
+    ]
+   }
+  },
+  {
+   "name": "frame-1x1-1080-0.9.png",
+   "want": [
+    1080,
+    1080
+   ],
+   "got": [
+    1080,
+    1080
+   ],
+   "info": {
+    "inner": [
+     720,
+     720,
+     1.5
+    ],
+    "content": [
+     1080,
+     1080
+    ]
+   }
+  },
+  {
+   "name": "frame-9x16-1080-0.9-alpha.png",
+   "want": [
+    1080,
+    1920
+   ],
+   "got": [
+    1080,
+    1920
+   ],
+   "info": {
+    "inner": [
+     720,
+     1280,
+     1.5
+    ],
+    "content": [
+     1080,
+     1920
+    ]
+   }
+  }
+ ],
+ "errors": [],
+ "display": {
+  "size": {
+   "width": 1024,
+   "height": 768
+  },
+  "workArea": {
+   "width": 1024,
+   "height": 720
+  },
+  "scale": 1
+ },
+ "export": {
+  "ok": true,
+  "path": "D:\\a\\motion-video-create\\motion-video-create\\ci-out\\export-1080.mp4",
+  "seconds": 14.801
+ },
+ "probe": "Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1080x1920 [SAR 1:1 DAR 9:16], 4940 kb/s, 30 fps, 30 tbr, 15360 tbn (default)",
+ "exportDiff1.5": 2.71,
+ "exportDiff2.4": 4.81,
+ "exportDiff": 2.24,
+ "edge": {
+  "kir-cuts-loud-sfx": {
+   "dur": 4,
+   "lufs": -13.9,
+   "left": [],
+   "sec": 9.3
+  },
+  "mov-alpha": {
+   "stream": "Stream #0:0[0x1]: Video: prores (4444) (ap4h / 0x68347061), yuva444p12le(bt709, progressive), 720x1280, 28049 kb/s, SAR 1:1 DAR 9:16, 30 fps, 30 tbr, 15360 tbn (default)",
+   "transparent": 0.836,
+   "sec": 3.2
+  },
+  "png-alpha": {
+   "transparent": 0.839,
+   "sec": 0.3
+  },
+  "webm": {
+   "vp9": true,
+   "opus": true,
+   "sec": 2.2
+  },
+  "gif": {
+   "gif": true,
+   "dur": 2,
+   "sec": 2.4
+  },
+  "sticker": {
+   "path": "стикер.webm",
+   "size": 72647,
+   "sec": 3.3
+  },
+  "fps60-1s": {
+   "frames": 60,
+   "fps60": true,
+   "sec": 4.1
+  },
+  "2160-24fps-mid": {
+   "stream": "Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 2160x3840 [SAR 1:1 DAR 9:16], 22559 kb/s, 24 fps, 24 tbr, 12288 tbn (default)",
+   "dur": 1.5,
+   "sec": 50
+  },
+  "short-track": {
+   "audioSec": 3.98,
+   "sec": 13.1
+  },
+  "empty-range": {
+   "msg": "отрезок ролика пустой — проверьте начало и конец ролика и вырезанные куски",
+   "sec": 0
+  },
+  "no-track": {
+   "msg": "не найден файл трека «нет такого.mp3» — возможно, его переместили, переименовали или диск отключён. Откройте трек заново",
+   "sec": 0
+  },
+  "over-track": {
+   "msg": "нельзя сохранить видео поверх файла трека — выберите другое имя",
+   "sec": 0
+  },
+  "locked": {
+   "msg": "не удаётся записать файл «locked.mp4»: он открыт в другой программе (например, в плеере) или нет прав на запись в папку. Закройте файл или выберите другое имя или папку",
+   "sec": 0
+  },
+  "cancel-render": {
+   "result": {
+    "ok": false,
+    "cancelled": true
+   },
+   "afterCancel": 0.005,
+   "left": [],
+   "ff": 0,
+   "old": true,
+   "sec": 1.9
+  },
+  "cancel-final": {
+   "result": {
+    "ok": false,
+    "cancelled": true
+   },
+   "afterCancel": 0.041,
+   "left": [],
+   "ff": 0,
+   "exists": false,
+   "sec": 22.5
+  },
+  "long-draft": {
+   "dur": 185,
+   "sec": 63.1
+  },
+  "update-launch": {
+   "started": true,
+   "sec": 1.4
+  }
+ },
+ "edgeLeft": [],
+ "nn": {
+  "ping": {
+   "pid": 3924,
+   "ort": "1.20.1",
+   "ortError": null,
+   "rss": 93708288,
+   "maxRss": 93704192,
+   "sessions": 0,
+   "ms": 177
+  },
+  "beatsMs": 1510,
+  "bpm": 120,
+  "crash": "нейросети не хватило памяти — закройте другие программы или выберите режим попроще",
+  "afterCrashMs": 1534
+ },
+ "geom": []
+}
