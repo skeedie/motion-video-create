@@ -1156,7 +1156,7 @@ if(S.outro){ const O=S.outro, t0=O.t0, t1=S.end??S.duration; if(t1-t0>.4){ const
 window.SCENES=SC.map(s=>({t0:s.t0,t1:s.t1,last:s.ws.length?s.ws[s.ws.length-1].t:s.t0}));
 { const fit=R=>{ if(TH==='phone') fitPhone(R); else fitCards(R); fitKin(R); }; REFIT=fit; fit(); if(document.fonts){ document.fonts.ready.then(()=>fit()); if(document.fonts.addEventListener) document.fonts.addEventListener('loadingdone',()=>fit()); } addEventListener('load',()=>fit());
  // шрифты и картинки сцены догружаются, когда сцена впервые показана, — размер карточки меняется, и подгонку под кадр повторяем для неё
- if(window.ResizeObserver){ const ro=new ResizeObserver(es=>{ const R=new Set(); es.forEach(e=>{ if(e.contentRect.width>0&&e.target.__fitRoot) R.add(e.target.__fitRoot); }); if(R.size) fit(R); });
+ if(window.ResizeObserver){ let RQ=null; const ro=new ResizeObserver(es=>{ const R=RQ||new Set(); es.forEach(e=>{ if(e.contentRect.width>0&&e.target.__fitRoot) R.add(e.target.__fitRoot); }); if(R.size&&!RQ){ RQ=R; /* подгонка — в следующем кадре, а не внутри уведомления: иначе браузер ругается на зацикливание */ requestAnimationFrame(()=>{ const q=RQ; RQ=null; fit(q); }); } });
   (TH==='phone'?PHONE_FIT.map(o=>[o.box,o.root]):CARD_FIT.map(o=>[o.sc,o.root]).concat(CARD_FIT.filter(o=>o.s.capTop).map(o=>[o.s.capTop,o.root]),CAP_FIT.map(o=>[o.cap,o.root]))).concat(KIN_FIT.map(o=>[o.el,o.root])).forEach(([e,r])=>{ e.__fitRoot=r; ro.observe(e); }); } }
 window.READY=true;
 </script></body></html>

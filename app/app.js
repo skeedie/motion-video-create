@@ -191,7 +191,7 @@ function engineHTML(spec, base) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
   const json = JSON.stringify(spec, (k, v) => typeof v === 'string' && v.indexOf('<') >= 0 && !v.startsWith('data:') ? v.replace(/<(?=[a-zA-Z\/!?])/g, '&lt;') : v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   return ENGINE.replace('<script>', () => `<script nonce="${nonce}">`)
-    .replace('<head>', () => `<head><meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}'; object-src 'none'">${base ? `<base href="${base}">` : ''}<script nonce="${nonce}">window.onerror=(m)=>{window.__err=String(m)}<\/script><link rel="stylesheet" href="fonts.css">`)
+    .replace('<head>', () => `<head><meta http-equiv="Content-Security-Policy" content="script-src 'nonce-${nonce}'; object-src 'none'">${base ? `<base href="${base}">` : ''}<script nonce="${nonce}">window.onerror=(m)=>{ if(!/ResizeObserver loop/.test(String(m))) window.__err=String(m) }<\/script><link rel="stylesheet" href="fonts.css">`)
     .replace('/*SPEC*/', () => 'window.SPEC=' + json + ';');
 }
 
