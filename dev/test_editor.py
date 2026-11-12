@@ -22,6 +22,8 @@ async def page(b, lang='ru', track=True, words=W):
     pg.on('dialog', lambda d: asyncio.ensure_future(d.accept()))
     await pg.add_init_script(f"try{{localStorage.setItem('ls-lang','{lang}')}}catch(e){{}}")
     await pg.goto(f'http://127.0.0.1:{PORT}/index.html'); await pg.wait_for_function('window.__ls')
+    # подтверждения в приложении — свои окна (Dialogs): в тесте отвечаем «да» и запоминаем вопрос
+    await pg.evaluate("(()=>{ window.__dlg=[]; if(window.Dialogs){ Dialogs.confirm=async(t)=>{ __dlg.push(String(t)); return true; }; Dialogs.alert=async(t)=>{ __dlg.push(String(t)); }; } })()")
     if track:
         await pg.evaluate("async(p)=>{ await __ls.loadAudio({path:p,name:'serega.mp3'}); __ls.proj.duration=73.37; }", TRACK); await pg.wait_for_timeout(800)
     if words is not None:
@@ -148,10 +150,10 @@ async def t_project(b):
     check('сохранить → открыть: проект тот же', s0 == s1)
     check('после открытия картинки на месте', await ev("Object.keys(__ls.proj.assets).length") >= 7)
     # вставили текст (ещё без синхронизации) — открытие другого проекта спрашивает подтверждение
-    nd = []; pg.on('dialog', lambda d: nd.append(d.message))
-    await ev("__ls.newFrom(false)"); await settle(pg, 300); nd.clear()
+    await ev("__ls.newFrom(false)"); await settle(pg, 300); await ev("(()=>{ __dlg.length=0; })()")
     await pg.fill('#lyrics', 'длинный текст песни\nвторая строка'); await settle(pg, 500)
     await ev("__ls.openProject()"); await settle(pg, 1500)
+    nd = await ev("__dlg")
     check('несинхронизированный текст: перед открытием другого проекта спрашивает', len(nd) == 1, nd)
     check('после открытия история с нуля', await ev("[__ls.histLen(), document.querySelector('#bUndo').disabled]") == [1, True])
     # старый проект без новых полей

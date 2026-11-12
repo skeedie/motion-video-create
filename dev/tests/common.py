@@ -38,6 +38,8 @@ class App:
         self.page.add_init_script(f"try{{localStorage.setItem('ls-lang','{lang}')}}catch(e){{}}")
         self.page.goto(self.env.base + 'index.html')
         self.page.wait_for_function('window.__ls', timeout=30000)
+        # подтверждения в приложении — свои окна (Dialogs): в тестах отвечаем «да» и запоминаем вопрос
+        self.page.evaluate("(()=>{ window.__dlg=[]; if(window.Dialogs){ Dialogs.confirm=async(t)=>{ __dlg.push(String(t)); return true; }; Dialogs.alert=async(t)=>{ __dlg.push(String(t)); }; } })()")
 
     def js(self, expr, arg=None):
         return self.page.evaluate(expr, arg) if arg is not None else self.page.evaluate(expr)
