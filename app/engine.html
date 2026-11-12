@@ -246,17 +246,24 @@ const TR_OUT={slide:{d:.3,x:-W*.62,y:-20,s:.5,b:5,r:-6,e:'cubic-bezier(.7,0,.84,
 const TR_LEAD={slide:.12,crisp:.14,zoom:.2,whip:.16,drop:.24};
 // виджет на экране телефона не должен быть шире и выше экрана — уменьшаем, если не влезает
 const PHONE_FIT=[];
-const CARD_FIT=[], CAP_FIT=[];
-function fitCards(){ CARD_FIT.forEach(o=>{ if(o.base==null) o.base=o.slot.style.scale||''; if(o.base!=='') return; /* вторая карточка сцены уже уменьшена своим правилом */
- const d=o.root.style.display; o.root.style.display=''; o.slot.style.scale=''; const bw=o.sc.offsetWidth, bh=o.sc.offsetHeight, k=o.sv(), ah=(o.slot.clientHeight||H)-12, end=getComputedStyle(o.slot).alignItems==='flex-end', top0=o.slot.offsetTop, sh=o.slot.clientHeight||H;
+const CARD_FIT=[], CAP_FIT=[], KIN_FIT=[];
+// крупная типографика: ширина слов считается приблизительно, поэтому после вёрстки меряем настоящий размер (с учётом наклона) и уменьшаем шрифт, если строка не влезает в кадр
+function fitKin(R){ KIN_FIT.forEach(o=>{ if(R&&!R.has(o.root)) return; const d=o.root.style.display; o.root.style.display=''; o.fe.style.fontSize=o.fs+'px'; if(o.after) o.after(o.fs);
+ for(let i=0;i<4;i++){ const w=Math.max(o.el.scrollWidth,o.el.offsetWidth), hh=o.el.offsetHeight; if(!w||!hh) break; const a=Math.abs(o.rot)*Math.PI/180, bw=w*Math.cos(a)+hh*Math.sin(a), bh=w*Math.sin(a)+hh*Math.cos(a), f=Math.min(1,o.mw/bw,o.mh/bh); if(f>.995) break; const nf=parseFloat(o.fe.style.fontSize)*f*.985; o.fe.style.fontSize=nf.toFixed(1)+'px'; if(o.after) o.after(nf); }
+ o.root.style.display=d; }); }
+function fitCards(R){ CARD_FIT.forEach(o=>{ if(R&&!R.has(o.root)) return; if(o.base==null) o.base=o.slot.style.scale||''; if(o.base!=='') return; /* вторая карточка сцены уже уменьшена своим правилом */
+ const d=o.root.style.display; o.root.style.display=''; o.slot.style.scale='';
+ // длинная подпись сверху (3–5 строк) не ложится на карточку: зона карточки начинается под подписью
+ if(o.s.capTop){ if(o.top0==null) o.top0=parseFloat(o.slot.style.top)||0; const c=o.s.capTop, cb=c.offsetTop+c.offsetHeight+16; o.slot.style.top=Math.max(o.top0,cb).toFixed(1)+'px'; }
+ const bw=o.sc.offsetWidth, bh=o.sc.offsetHeight, k=o.sv(), ah=(o.slot.clientHeight||H)-12, end=getComputedStyle(o.slot).alignItems==='flex-end', top0=o.slot.offsetTop, sh=o.slot.clientHeight||H;
  const ex=o.s.capEl?o.s.capEl.offsetHeight+((S.capGap??22)/k)+10:0; o.root.style.display=d;
  if(!bw||!bh) return; const f=Math.min(1,(W-20)/(bw*k),ah/((bh+ex)*k)); if(f<.985){ o.slot.style.transformOrigin=end?'50% 100%':'50% 50%'; o.slot.style.scale=f.toFixed(4); }
  // подпись, прикреплённая над карточкой, не уходит за верхний край: вся группа опускается
  if(ex&&!end){ const capTop=top0+sh/2+(o.s.dy||0)-bh*k*Math.min(1,f)/2-ex*k*Math.min(1,f); if(capTop<10) o.slot.style.translate=`${o.s.dx||0}px ${((o.s.dy||0)+10-capTop).toFixed(1)}px`; } });
  // подпись не уходит под плеер и за нижний край: длинная строка уменьшается
  const lim=H-(S.player?H*.125:S.spectrum?H*.095:H*.035);
- CAP_FIT.forEach(o=>{ const d=o.root.style.display; o.root.style.display=''; o.cap.style.fontSize=o.fs+'px'; for(let i=0;i<4;i++){ const top=o.cap.offsetTop, hh=o.cap.offsetHeight; if(!hh||top+hh<=lim||top>=lim) break; const f=Math.max(.5,(lim-top)/hh); o.cap.style.fontSize=(parseFloat(o.cap.style.fontSize)*Math.sqrt(f)*.98).toFixed(1)+'px'; if(parseFloat(o.cap.style.fontSize)<o.fs*.5) break; } o.root.style.display=d; }); }
-function fitPhone(){ PHONE_FIT.forEach(o=>{ const d=o.root.style.display; o.root.style.display=''; const bw=o.box.offsetWidth, bh=o.box.offsetHeight, k=o.sv(); o.root.style.display=d;
+ CAP_FIT.forEach(o=>{ if(R&&!R.has(o.root)) return; const d=o.root.style.display; o.root.style.display=''; o.cap.style.fontSize=o.fs+'px'; for(let i=0;i<4;i++){ const top=o.cap.offsetTop, hh=o.cap.offsetHeight; if(!hh||top+hh<=lim||top>=lim) break; const f=Math.max(.5,(lim-top)/hh); o.cap.style.fontSize=(parseFloat(o.cap.style.fontSize)*Math.sqrt(f)*.98).toFixed(1)+'px'; if(parseFloat(o.cap.style.fontSize)<o.fs*.5) break; } o.root.style.display=d; }); }
+function fitPhone(R){ PHONE_FIT.forEach(o=>{ if(R&&!R.has(o.root)) return; const d=o.root.style.display; o.root.style.display=''; const bw=o.box.offsetWidth, bh=o.box.offsetHeight, k=o.sv(); o.root.style.display=d;
  if(!bw||!bh) return; const f=Math.min(1,(398-30)/(bw*k),(880-22-170)/(bh*k)); o.slot.style.scale=f.toFixed(4); }); }
 function buildScenes(){ SC.forEach((s,k)=>{
 const root=h('div','abs'); (screenEl||stage).append(root); s.el=root;
@@ -327,10 +334,10 @@ const cw=h('div','abs'); const cap=h('div','cap'); cw.append(cap); cap.style.fon
 if(capPos==='below'){ cap.style.top=(s.widget? H*(s.capY??.575) : H*(s.capY??.6))+'px'; }
 else if(capPos==='top'){ cap.style.top=(H<=760?42:70)+'px'; cap.style.left='7%'; cap.style.right='7%'; cap.style.fontWeight=TH==='dark'?800:700; cap.style.letterSpacing='-.02em'; cap.style.lineHeight=TH==='dark'?'1.12':'1.18'; if(TH==='dark'){ cap.style.textAlign=S.capAlign||'left'; } }
 else if(capPos==='center'){ cap.style.top='42%'; }
-if(TH==='sky'){ const rot=(rnd(s.k*13+3)()-.5)*12; Object.assign(cap.style,{textTransform:'uppercase',color:'#fff',fontWeight:900,letterSpacing:'0',lineHeight:'.95',left:'-8%',right:'-8%',textShadow:'0 1px 0 #D5DEE8,0 2px 0 #C9D3DF,0 3px 0 #BCC7D4,0 4px 0 #B0BCC9,0 5px 0 #A4B0BE,0 10px 18px rgba(20,60,110,.35)',transform:`${s.widget?'':'translateY(-50%) '}scaleX(.8) rotate(${rot}deg)`}); if(!s.widget) cap.style.top=H*(s.capY??.5)+'px'; }
+if(TH==='sky'){ /* наклонная строка под карточкой краем не заезжает на карточку: в широком кадре наклон меньше */ const gap=s.widget?H*(s.capY??.575)-(H*(s.capY??.56)-34):1e9, rmax=Math.asin(Math.min(1,gap*.85/(W*1.16*.8/2)))*180/Math.PI, rot=(rnd(s.k*13+3)()-.5)*12*Math.min(1,rmax/6); Object.assign(cap.style,{textTransform:'uppercase',color:'#fff',fontWeight:900,letterSpacing:'0',lineHeight:'.95',left:'-8%',right:'-8%',textShadow:'0 1px 0 #D5DEE8,0 2px 0 #C9D3DF,0 3px 0 #BCC7D4,0 4px 0 #B0BCC9,0 5px 0 #A4B0BE,0 10px 18px rgba(20,60,110,.35)',transform:`${s.widget?'':'translateY(-50%) '}scaleX(.8) rotate(${rot}deg)`}); if(!s.widget) cap.style.top=H*(s.capY??.5)+'px'; }
 if(S.capGlow) cap.style.filter=S.capGlow===true?'drop-shadow(0 0 8px rgba(255,255,255,.95)) drop-shadow(0 0 2px rgba(255,255,255,.9))':S.capGlow;
 if(S.capFont){ cap.style.fontFamily=`"${S.capFont}","Noto Color Emoji",sans-serif`; cap.style.fontWeight=S.capWeight||900; cap.style.letterSpacing=S.capTrack??'-.01em'; cap.style.lineHeight=S.capLine??'1.1'; }
-let capIn=false; if(S.capAttach&&s.box&&s.caption!=='free'){ const ks=s.widget.scale??wScale, bw=s.box.offsetWidth||460, cwid=W*(S.capWidth??.9)/ks;
+let capIn=false; if(S.capAttach&&s.box&&s.caption!=='free'){ const ks=s.widget.scale??wScale, bw=s.box.offsetWidth||460, cwid=Math.min(W*(S.capWidth??.9),Math.max(bw*ks,H*.5625*(S.capWidth??.9)))/ks; /* в широком кадре подпись не растягивается на весь экран, а встаёт над карточкой по её ширине */
 Object.assign(cap.style,{position:'absolute',top:'auto',bottom:`calc(100% + ${((S.capGap??22)/ks+(s.box.offsetHeight||300)*((s.push??S.push)===true?.05:(+(s.push??S.push)||0))*.5+6).toFixed(1)}px)`,left:`${(bw-cwid)/2}px`,right:`${(bw-cwid)/2}px`,fontSize:`${(s.size||capSize)/ks}px`,zIndex:4}); s.box.append(cap); s.capEl=cap; capIn=true; }
 const HL=s.hl||{}, EM=s.emoji||{}, ST=(s.strike||[]).map(norm), hs=s.hlStyle||HLS;
 s.ws.forEach((w,i)=>{
@@ -349,7 +356,7 @@ const ek=Object.keys(EM).find(x=>norm(w.w).startsWith(norm(x)));
 if(ek){ [...new Intl.Segmenter('ru',{granularity:'grapheme'}).segment(EM[ek])].map(x=>x.segment).filter(x=>x.trim()).forEach((e,j)=>{
 const em=h('span','em',e); emHost.append(em); POP(em, Math.max(w.t+.02,Math.min(w.t+.22,s.t1-.55))+j*.1); }); }
 });
-root.append(cw);
+root.append(cw); if(!capIn&&capPos==='top'&&s.slot&&!s.slot2) s.capTop=cap;
 if(!capIn) OUT(cw,s.t1-((s.trans||S.trans)==='crisp'||(s.trans||S.trans)==='slide'||(s.trans||S.trans)==='surface'?.14:.1),(s.trans||S.trans)==='crisp'||(s.trans||S.trans)==='slide'||(s.trans||S.trans)==='surface'?{b:3,d:.14,y:-14,s:1}:{b:12,d:.26});
 // ghost history (soft theme): previous line sits small & blurred at the bottom
 if(TH==='soft' && S.ghost!==false && k<SC.length-1){ const g=h('div','ghost'); g.textContent=s.ws.map(w=>w.w).join(' ');
@@ -380,14 +387,14 @@ const colOf=w=>(w.acc&&w.acc.color)||accOf(w)||ink;
 // сцена с карточкой: крупные слова не ложатся поверх неё — встают в свободную зону под карточкой и ужимаются под её высоту
 const zone=(s.widget&&s.slot&&K.y==null&&TH!=='phone')?{top:H*(s.capY??.56)+H*.008, bot:H-(S.player?H*.118:S.spectrum?H*.09:H*.06)}:null, zh=zone?Math.max(120,zone.bot-zone.top):0, zy=zone?(zone.top+zh/2)/H:null;
 const wrap=h('div','abs kin'); root.append(wrap); if(K.shadow!==false&&(DARK||K.shadow)) wrap.style.filter='drop-shadow(0 8px 22px rgba(0,0,0,.35))';
-if(mode==='punch'){ s.ws.forEach((w,i)=>{ const len=Math.max(3,[...w.w].length), fs=sz||s.size||Math.min(zone?zh*.62:H*.3,W*.9/(len*.6)); const e=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??.5)*100}%;margin-top:${-fs*.55}px;text-align:center;font:${FW} ${fs}px/1.1 ${FF};letter-spacing:-.05em;color:${colOf(w)}`); const inn=h('span','',w.w,'display:inline-block'); e.append(inn); wrap.append(e); const rot=(Rk()-.5)*(K.rot??14), nx=s.ws[i+1];
+if(mode==='punch'){ s.ws.forEach((w,i)=>{ const len=Math.max(3,[...w.w].length), fs=sz||s.size||Math.min(zone?zh*.62:H*.3,W*.9/(len*.6)); const e=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??.5)*100}%;margin-top:${-fs*.55}px;text-align:center;font:${FW} ${fs}px/1.1 ${FF};letter-spacing:-.05em;color:${colOf(w)}`); const inn=h('span','',w.w,'display:inline-block'); e.append(inn); wrap.append(e); const rot=(Rk()-.5)*(K.rot??14), nx=s.ws[i+1]; { const cy=H*(K.y??zy??.5); KIN_FIT.push({root,el:inn,fe:e,fs,rot:rot*.3,mw:W*.94,mh:zone?zh:2*Math.min(cy,H-cy)*.94,after:f=>{ e.style.marginTop=(-f*.55).toFixed(1)+'px'; }}); }
 an(inn,[{opacity:0,filter:'blur(16px)',transform:`scale(1.6) rotate(${rot}deg)`},{opacity:1,filter:'blur(0px)',transform:`scale(1) rotate(${rot*.3}deg)`}],w.t-.04,.2); if(nx) an(e,[{opacity:1},{opacity:0}],nx.t-.04,.08); }); OUT(wrap,s.t1-.1,{b:14,d:.2,s:1.1}); return; }
 const pop=mode==='pop', maxc=K.maxChars||s.maxChars||S.maxChars||(W>H?18:pop?12:10), lh=pop?1.12:.98;
 const wrapLines=mc=>{ const L=[[]]; let c=0; s.ws.forEach(w=>{ const n=[...w.w].length; if(c&&c+n>mc){ L.push([]); c=0; } L[L.length-1].push(w); c+=n+1; }); return L; };
 const longOf=L=>Math.max(...L.map(l=>l.reduce((a,w)=>a+[...w.w].length+1,-1)));
 let lines=wrapLines(maxc), fs=sz||s.size||Math.min(H*(pop?.12:.16),W*.86/(longOf(lines)*.6));
 if(zone&&!(sz||s.size)){ let best=null; for(const mc of [maxc,12,14,16,18,22,26,32]){ const L=wrapLines(mc), f=Math.min(H*(pop?.12:.16),W*.86/(longOf(L)*.6),zh*.94/(L.length*lh)); if(!best||f>best.f+.5) best={f,L}; } lines=best.L; fs=best.f; }
-const rot=pop?(K.rot??0):(Rk()-.5)*(K.rot??s.rot??6)*(zone?.5:1), box=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??s.capY??.5)*100}%;display:flex;justify-content:center;transform:translateY(-50%) rotate(${rot}deg)`), inner=h('div','',null,`font:${FW} ${fs}px/${pop?1.12:.98} ${FF};letter-spacing:-.045em;text-align:${K.align||s.align||(pop?'center':'left')}`); box.append(inner); wrap.append(box);
+const rot=pop?(K.rot??0):(Rk()-.5)*(K.rot??s.rot??6)*(zone?.5:1), box=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??s.capY??.5)*100}%;display:flex;justify-content:center;transform:translateY(-50%) rotate(${rot}deg)`), inner=h('div','',null,`font:${FW} ${fs}px/${pop?1.12:.98} ${FF};letter-spacing:-.045em;text-align:${K.align||s.align||(pop?'center':'left')}`); box.append(inner); wrap.append(box); { const cy=H*(K.y??zy??s.capY??.5); KIN_FIT.push({root,el:inner,fe:inner,fs,rot,mw:W*.94,mh:zone?zh:2*Math.min(cy,H-cy)*.94}); }
 lines.forEach(l=>{ const ln=h('div'); inner.append(ln); l.forEach((w,j)=>{ const a=accOf(w); let sp;
  if(pop){ if(j) ln.append(document.createTextNode(' ')); sp=h('span','',w.w,`display:inline-block;white-space:pre;color:${a&&K.boxes!==false?(lum(a)>.62?'#111':'#fff'):colOf(w)};${a&&K.boxes!==false?`background:${a};padding:0 .14em;border-radius:.14em;transform:rotate(${(Rk()-.5)*6}deg)`:''}`); ln.append(sp);
   an(sp,[{opacity:0,transform:`${sp.style.transform||''} scale(.2) translateY(.4em)`},{opacity:1,transform:`${sp.style.transform||''} scale(1.18)`,offset:.6},{opacity:1,transform:sp.style.transform||'none'}],w.t-.06,.3); return; }
@@ -894,7 +901,7 @@ const car=h('div','',p.car||'🚗',`position:absolute;left:0;top:44px;font-famil
 tick(tt=>{ const x=X(tt); car.style.transform=`translate(${x-18}px,${Math.sin(tt*22)*1.2}px) scaleX(${p.flip===false?1:-1})`; tr.style.width=x+'px'; cnt.textContent=(p.countLabel||'видели: ')+ms.filter(v=>tt>=v).length; });
 return w; };
 WIDGETS.alert=(s,p,at)=>{ const t=at(p.at), a=p.from??18, b=p.to??1, d=p.dur||1.2;
-const w=h('div','card col',`<div style="display:flex;justify-content:center;margin-top:6px"><div style="position:relative;width:96px;height:46px;border-radius:12px;border:3.5px solid currentColor;padding:4px;opacity:.9"><i class="lv" style="display:block;height:100%;border-radius:6px;transform-origin:0 50%;background:#FF3B30"></i><b style="position:absolute;right:-10px;top:13px;width:5px;height:13px;border-radius:0 3px 3px 0;background:currentColor"></b><span class="pc b8 tn" style="position:absolute;left:0;right:0;top:9px;text-align:center;font-size:18px"></span></div></div><div class="ti" style="text-align:center;margin-top:16px"></div><div class="tx" style="text-align:center;margin-top:6px"></div><div class="row" style="margin-top:18px;border-top:1px solid var(--line)"><div class="sp t16 b6" style="text-align:center;padding:14px 0;color:var(--blue);border-right:1px solid var(--line)">${p.b1||'Закрыть'}</div><div class="sp t16 b6 b2" style="text-align:center;padding:14px 0;color:var(--blue)">${p.b2||'Энергосбережение'}</div></div>`,`width:${p.width||420}px;padding:20px 0 0;overflow:hidden`);
+const w=h('div','card col',`<div style="display:flex;justify-content:center;margin-top:6px"><div style="position:relative;width:96px;height:46px;border-radius:12px;border:3.5px solid currentColor;padding:4px;opacity:.9"><i class="lv" style="display:block;height:100%;border-radius:6px;transform-origin:0 50%;background:#FF3B30"></i><b style="position:absolute;right:-10px;top:13px;width:5px;height:13px;border-radius:0 3px 3px 0;background:currentColor"></b><span class="pc b8 tn" style="position:absolute;left:0;right:0;top:9px;text-align:center;font-size:18px"></span></div></div><div class="ti" style="text-align:center;margin-top:16px;padding:0 22px"></div><div class="tx" style="text-align:center;margin-top:6px;padding:0 22px"></div><div class="row" style="margin-top:18px;border-top:1px solid var(--line)"><div class="sp t16 b6" style="text-align:center;padding:14px 0;color:var(--blue);border-right:1px solid var(--line)">${p.b1||'Закрыть'}</div><div class="sp t16 b6 b2" style="text-align:center;padding:14px 0;color:var(--blue)">${p.b2||'Энергосбережение'}</div></div>`,`width:${p.width||420}px;padding:20px 0 0;overflow:hidden`);
 lyr(txt(s,w.querySelector('.ti'),p.title||'Низкий заряд'),p.title); lyr(txt(s,w.querySelector('.tx'),p.text||''),p.text); const tx=w.querySelector('.tx'); if(String(p.text).startsWith('$line')){ tx.style.color='var(--blue)'; }
 const lv=w.querySelector('.lv'), pc=w.querySelector('.pc'); tick(tt=>{ const v=a+(b-a)*eo(P(tt,t,d)); lv.style.transform=`scaleX(${v/100})`; pc.textContent=Math.round(v)+'%'; lv.style.opacity=v<5?(Math.floor(tt*4)%2?.35:1):1; });
 if(p.tap_at!=null) an(w.querySelector('.b2'),[{background:'rgba(10,132,255,0)'},{background:'rgba(10,132,255,.18)'},{background:'rgba(10,132,255,0)'}],at(p.tap_at),.45); return w; };
@@ -1147,6 +1154,9 @@ if(S.outro){ const O=S.outro, t0=O.t0, t1=S.end??S.duration; if(t1-t0>.4){ const
  if(O.artist){ const a=h('div','',O.artist,`font:800 ${Math.round(W*.05)}px/1 Inter;margin-top:${Math.round(fs*.4)}px`); col.append(a); IN(a,t0+.75,{y:12,b:8,d:.4}); }
  if(O.sub){ const b=h('div','',O.sub,`margin-top:${Math.round(fs*.25)}px;background:${IO_ACC};color:#fff;border-radius:999px;padding:${Math.round(W*.018)}px ${Math.round(W*.05)}px;font:800 ${Math.round(W*.036)}px/1 Inter`); col.append(b); POP(b,t0+.95,.45); an(b,[{transform:'scale(1)'},{transform:'scale(1.06)'},{transform:'scale(1)'}],t0+1.6,.5); } } }
 window.SCENES=SC.map(s=>({t0:s.t0,t1:s.t1,last:s.ws.length?s.ws[s.ws.length-1].t:s.t0}));
-if(TH==='phone'){ fitPhone(); if(document.fonts) document.fonts.ready.then(fitPhone); } else { fitCards(); if(document.fonts) document.fonts.ready.then(fitCards); }
+{ const fit=R=>{ if(TH==='phone') fitPhone(R); else fitCards(R); fitKin(R); }; fit(); if(document.fonts){ document.fonts.ready.then(()=>fit()); if(document.fonts.addEventListener) document.fonts.addEventListener('loadingdone',()=>fit()); } addEventListener('load',()=>fit());
+ // шрифты и картинки сцены догружаются, когда сцена впервые показана, — размер карточки меняется, и подгонку под кадр повторяем для неё
+ if(window.ResizeObserver){ const ro=new ResizeObserver(es=>{ const R=new Set(); es.forEach(e=>{ if(e.contentRect.width>0&&e.target.__fitRoot) R.add(e.target.__fitRoot); }); if(R.size) fit(R); });
+  (TH==='phone'?PHONE_FIT.map(o=>[o.box,o.root]):CARD_FIT.map(o=>[o.sc,o.root]).concat(CARD_FIT.filter(o=>o.s.capTop).map(o=>[o.s.capTop,o.root]),CAP_FIT.map(o=>[o.cap,o.root]))).concat(KIN_FIT.map(o=>[o.el,o.root])).forEach(([e,r])=>{ e.__fitRoot=r; ro.observe(e); }); } }
 window.READY=true;
 </script></body></html>
