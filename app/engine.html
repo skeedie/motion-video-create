@@ -246,15 +246,15 @@ const TR_OUT={slide:{d:.3,x:-W*.62,y:-20,s:.5,b:5,r:-6,e:'cubic-bezier(.7,0,.84,
 const TR_LEAD={slide:.12,crisp:.14,zoom:.2,whip:.16,drop:.24};
 // виджет на экране телефона не должен быть шире и выше экрана — уменьшаем, если не влезает
 const PHONE_FIT=[];
-const CARD_FIT=[], CAP_FIT=[], KIN_FIT=[];
+const CARD_FIT=[], CAP_FIT=[], KIN_FIT=[]; let REFIT=null;
 // крупная типографика: ширина слов считается приблизительно, поэтому после вёрстки меряем настоящий размер (с учётом наклона) и уменьшаем шрифт, если строка не влезает в кадр
 function fitKin(R){ KIN_FIT.forEach(o=>{ if(R&&!R.has(o.root)) return; const d=o.root.style.display; o.root.style.display=''; o.fe.style.fontSize=o.fs+'px'; if(o.after) o.after(o.fs);
  for(let i=0;i<4;i++){ const w=Math.max(o.el.scrollWidth,o.el.offsetWidth), hh=o.el.offsetHeight; if(!w||!hh) break; const a=Math.abs(o.rot)*Math.PI/180, bw=w*Math.cos(a)+hh*Math.sin(a), bh=w*Math.sin(a)+hh*Math.cos(a), f=Math.min(1,o.mw/bw,o.mh/bh); if(f>.995) break; const nf=parseFloat(o.fe.style.fontSize)*f*.985; o.fe.style.fontSize=nf.toFixed(1)+'px'; if(o.after) o.after(nf); }
  o.root.style.display=d; }); }
 function fitCards(R){ CARD_FIT.forEach(o=>{ if(R&&!R.has(o.root)) return; if(o.base==null) o.base=o.slot.style.scale||''; if(o.base!=='') return; /* вторая карточка сцены уже уменьшена своим правилом */
  const d=o.root.style.display; o.root.style.display=''; o.slot.style.scale='';
- // длинная подпись сверху (3–5 строк) не ложится на карточку: зона карточки начинается под подписью
- if(o.s.capTop){ if(o.top0==null) o.top0=parseFloat(o.slot.style.top)||0; const c=o.s.capTop, cb=c.offsetTop+c.offsetHeight+16; o.slot.style.top=Math.max(o.top0,cb).toFixed(1)+'px'; }
+ // длинная подпись сверху (3–5 строк) не ложится на карточку: если карточка задевает подпись, её зона начинается под подписью
+ if(o.s.capTop){ if(o.top0==null) o.top0=parseFloat(o.slot.style.top)||0; o.slot.style.top=o.top0+'px'; const c=o.s.capTop, cb=c.offsetTop+c.offsetHeight+16, k0=o.sv(), bh0=o.sc.offsetHeight*k0, sh0=o.slot.clientHeight, f0=Math.min(1,(W-20)/(o.sc.offsetWidth*k0||1),(sh0-12)/(bh0||1)), ct=o.top0+(sh0-bh0*f0)/2+(o.s.dy||0); if(bh0&&ct<cb) o.slot.style.top=cb.toFixed(1)+'px'; }
  const bw=o.sc.offsetWidth, bh=o.sc.offsetHeight, k=o.sv(), ah=(o.slot.clientHeight||H)-12, end=getComputedStyle(o.slot).alignItems==='flex-end', top0=o.slot.offsetTop, sh=o.slot.clientHeight||H;
  const ex=o.s.capEl?o.s.capEl.offsetHeight+((S.capGap??22)/k)+10:0; o.root.style.display=d;
  if(!bw||!bh) return; const f=Math.min(1,(W-20)/(bw*k),ah/((bh+ex)*k)); if(f<.985){ o.slot.style.transformOrigin=end?'50% 100%':'50% 50%'; o.slot.style.scale=f.toFixed(4); }
@@ -269,7 +269,7 @@ function buildScenes(){ SC.forEach((s,k)=>{
 const root=h('div','abs'); (screenEl||stage).append(root); s.el=root;
 const at=mkAt(s); s.at=at;
 // visibility culling
-tick(t=>{root.style.display=(t>=s.t0-.6&&t<=s.t1+.45)?'':'none';});
+tick(t=>{ const v=t>=s.t0-.6&&t<=s.t1+.45; root.style.display=v?'':'none'; /* сцена показана впервые после загрузки шрифтов — подгоняем её по настоящим размерам */ if(v&&!root.__fitOk&&REFIT&&document.fonts&&document.fonts.status==='loaded'){ root.__fitOk=1; REFIT(new Set([root])); } });
 if(s.cam&&s.cam!=='none'){ const cm=s.cam, d=Math.max(.5,s.t1-s.t0); tick(t=>{ if(t<s.t0-.6||t>s.t1+.5) return; const q=eio(P(t,s.t0,d));
  root.style.transform=cm==='in'?`scale(${1+.12*q})`:cm==='out'?`scale(${1.12-.12*q})`:cm==='left'?`translateX(${((.5-q)*W*.1).toFixed(1)}px) scale(1.06)`:cm==='right'?`translateX(${((q-.5)*W*.1).toFixed(1)}px) scale(1.06)`:`translateY(${(Math.sin(t*1.1)*8).toFixed(1)}px) rotate(${(Math.sin(t*.9+1)*1.6).toFixed(2)}deg)`; }); }
 let slot=null;
@@ -386,15 +386,15 @@ const accOf=w=>{ const k=Object.keys(HL).find(x=>norm(w.w).startsWith(norm(x)));
 const colOf=w=>(w.acc&&w.acc.color)||accOf(w)||ink;
 // сцена с карточкой: крупные слова не ложатся поверх неё — встают в свободную зону под карточкой и ужимаются под её высоту
 const zone=(s.widget&&s.slot&&K.y==null&&TH!=='phone')?{top:H*(s.capY??.56)+H*.008, bot:H-(S.player?H*.118:S.spectrum?H*.09:H*.06)}:null, zh=zone?Math.max(120,zone.bot-zone.top):0, zy=zone?(zone.top+zh/2)/H:null;
-const wrap=h('div','abs kin'); root.append(wrap); if(K.shadow!==false&&(DARK||K.shadow)) wrap.style.filter='drop-shadow(0 8px 22px rgba(0,0,0,.35))';
-if(mode==='punch'){ s.ws.forEach((w,i)=>{ const len=Math.max(3,[...w.w].length), fs=sz||s.size||Math.min(zone?zh*.62:H*.3,W*.9/(len*.6)); const e=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??.5)*100}%;margin-top:${-fs*.55}px;text-align:center;font:${FW} ${fs}px/1.1 ${FF};letter-spacing:-.05em;color:${colOf(w)}`); const inn=h('span','',w.w,'display:inline-block'); e.append(inn); wrap.append(e); const rot=(Rk()-.5)*(K.rot??14), nx=s.ws[i+1]; { const cy=H*(K.y??zy??.5); KIN_FIT.push({root,el:inn,fe:e,fs,rot:rot*.3,mw:W*.94,mh:zone?zh:2*Math.min(cy,H-cy)*.94,after:f=>{ e.style.marginTop=(-f*.55).toFixed(1)+'px'; }}); }
+const KBOT=TH==='phone'?H*.03:(S.player?H*.118:S.spectrum?H*.09:H*.03); /* крупный текст не заходит под плеер внизу */ const wrap=h('div','abs kin'); root.append(wrap); if(K.shadow!==false&&(DARK||K.shadow)) wrap.style.filter='drop-shadow(0 8px 22px rgba(0,0,0,.35))';
+if(mode==='punch'){ s.ws.forEach((w,i)=>{ const len=Math.max(3,[...w.w].length), fs=sz||s.size||Math.min(zone?zh*.62:H*.3,W*.9/(len*.6)); const e=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??.5)*100}%;margin-top:${-fs*.55}px;text-align:center;font:${FW} ${fs}px/1.1 ${FF};letter-spacing:-.05em;color:${colOf(w)}`); const inn=h('span','',w.w,'display:inline-block'); e.append(inn); wrap.append(e); const rot=(Rk()-.5)*(K.rot??14), nx=s.ws[i+1]; { const cy=H*(K.y??zy??.5); KIN_FIT.push({root,el:inn,fe:e,fs,rot:rot*.3,mw:W*.94,mh:zone?zh:2*Math.min(cy-H*.03,H-KBOT-cy),after:f=>{ e.style.marginTop=(-f*.55).toFixed(1)+'px'; }}); }
 an(inn,[{opacity:0,filter:'blur(16px)',transform:`scale(1.6) rotate(${rot}deg)`},{opacity:1,filter:'blur(0px)',transform:`scale(1) rotate(${rot*.3}deg)`}],w.t-.04,.2); if(nx) an(e,[{opacity:1},{opacity:0}],nx.t-.04,.08); }); OUT(wrap,s.t1-.1,{b:14,d:.2,s:1.1}); return; }
 const pop=mode==='pop', maxc=K.maxChars||s.maxChars||S.maxChars||(W>H?18:pop?12:10), lh=pop?1.12:.98;
 const wrapLines=mc=>{ const L=[[]]; let c=0; s.ws.forEach(w=>{ const n=[...w.w].length; if(c&&c+n>mc){ L.push([]); c=0; } L[L.length-1].push(w); c+=n+1; }); return L; };
 const longOf=L=>Math.max(...L.map(l=>l.reduce((a,w)=>a+[...w.w].length+1,-1)));
 let lines=wrapLines(maxc), fs=sz||s.size||Math.min(H*(pop?.12:.16),W*.86/(longOf(lines)*.6));
 if(zone&&!(sz||s.size)){ let best=null; for(const mc of [maxc,12,14,16,18,22,26,32]){ const L=wrapLines(mc), f=Math.min(H*(pop?.12:.16),W*.86/(longOf(L)*.6),zh*.94/(L.length*lh)); if(!best||f>best.f+.5) best={f,L}; } lines=best.L; fs=best.f; }
-const rot=pop?(K.rot??0):(Rk()-.5)*(K.rot??s.rot??6)*(zone?.5:1), box=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??s.capY??.5)*100}%;display:flex;justify-content:center;transform:translateY(-50%) rotate(${rot}deg)`), inner=h('div','',null,`font:${FW} ${fs}px/${pop?1.12:.98} ${FF};letter-spacing:-.045em;text-align:${K.align||s.align||(pop?'center':'left')}`); box.append(inner); wrap.append(box); { const cy=H*(K.y??zy??s.capY??.5); KIN_FIT.push({root,el:inner,fe:inner,fs,rot,mw:W*.94,mh:zone?zh:2*Math.min(cy,H-cy)*.94}); }
+const rot=pop?(K.rot??0):(Rk()-.5)*(K.rot??s.rot??6)*(zone?.5:1), box=h('div','',null,`position:absolute;left:0;right:0;top:${(K.y??zy??s.capY??.5)*100}%;display:flex;justify-content:center;transform:translateY(-50%) rotate(${rot}deg)`), inner=h('div','',null,`font:${FW} ${fs}px/${pop?1.12:.98} ${FF};letter-spacing:-.045em;text-align:${K.align||s.align||(pop?'center':'left')}`); box.append(inner); wrap.append(box); { const cy=H*(K.y??zy??s.capY??.5); KIN_FIT.push({root,el:inner,fe:inner,fs,rot,mw:W*.94,mh:zone?zh:2*Math.min(cy-H*.03,H-KBOT-cy)}); }
 lines.forEach(l=>{ const ln=h('div'); inner.append(ln); l.forEach((w,j)=>{ const a=accOf(w); let sp;
  if(pop){ if(j) ln.append(document.createTextNode(' ')); sp=h('span','',w.w,`display:inline-block;white-space:pre;color:${a&&K.boxes!==false?(lum(a)>.62?'#111':'#fff'):colOf(w)};${a&&K.boxes!==false?`background:${a};padding:0 .14em;border-radius:.14em;transform:rotate(${(Rk()-.5)*6}deg)`:''}`); ln.append(sp);
   an(sp,[{opacity:0,transform:`${sp.style.transform||''} scale(.2) translateY(.4em)`},{opacity:1,transform:`${sp.style.transform||''} scale(1.18)`,offset:.6},{opacity:1,transform:sp.style.transform||'none'}],w.t-.06,.3); return; }
@@ -1154,7 +1154,7 @@ if(S.outro){ const O=S.outro, t0=O.t0, t1=S.end??S.duration; if(t1-t0>.4){ const
  if(O.artist){ const a=h('div','',O.artist,`font:800 ${Math.round(W*.05)}px/1 Inter;margin-top:${Math.round(fs*.4)}px`); col.append(a); IN(a,t0+.75,{y:12,b:8,d:.4}); }
  if(O.sub){ const b=h('div','',O.sub,`margin-top:${Math.round(fs*.25)}px;background:${IO_ACC};color:#fff;border-radius:999px;padding:${Math.round(W*.018)}px ${Math.round(W*.05)}px;font:800 ${Math.round(W*.036)}px/1 Inter`); col.append(b); POP(b,t0+.95,.45); an(b,[{transform:'scale(1)'},{transform:'scale(1.06)'},{transform:'scale(1)'}],t0+1.6,.5); } } }
 window.SCENES=SC.map(s=>({t0:s.t0,t1:s.t1,last:s.ws.length?s.ws[s.ws.length-1].t:s.t0}));
-{ const fit=R=>{ if(TH==='phone') fitPhone(R); else fitCards(R); fitKin(R); }; fit(); if(document.fonts){ document.fonts.ready.then(()=>fit()); if(document.fonts.addEventListener) document.fonts.addEventListener('loadingdone',()=>fit()); } addEventListener('load',()=>fit());
+{ const fit=R=>{ if(TH==='phone') fitPhone(R); else fitCards(R); fitKin(R); }; REFIT=fit; fit(); if(document.fonts){ document.fonts.ready.then(()=>fit()); if(document.fonts.addEventListener) document.fonts.addEventListener('loadingdone',()=>fit()); } addEventListener('load',()=>fit());
  // шрифты и картинки сцены догружаются, когда сцена впервые показана, — размер карточки меняется, и подгонку под кадр повторяем для неё
  if(window.ResizeObserver){ const ro=new ResizeObserver(es=>{ const R=new Set(); es.forEach(e=>{ if(e.contentRect.width>0&&e.target.__fitRoot) R.add(e.target.__fitRoot); }); if(R.size) fit(R); });
   (TH==='phone'?PHONE_FIT.map(o=>[o.box,o.root]):CARD_FIT.map(o=>[o.sc,o.root]).concat(CARD_FIT.filter(o=>o.s.capTop).map(o=>[o.s.capTop,o.root]),CAP_FIT.map(o=>[o.cap,o.root]))).concat(KIN_FIT.map(o=>[o.el,o.root])).forEach(([e,r])=>{ e.__fitRoot=r; ro.observe(e); }); } }
