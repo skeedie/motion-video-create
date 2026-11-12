@@ -1146,6 +1146,14 @@ function selfTestSpec() {
 }
 // контрольный ролик для автоматической проверки экспорта
 window.__ciJob = (fmt, alpha) => { const keep = proj.style.format; proj.style.format = fmt; let spec; try { spec = selfTestSpec(); if (alpha) spec.transparent = true; } finally { proj.style.format = keep; } const [W, H] = FMT[fmt]; return { html: engineHTML(spec, 'app://app/'), W, H }; };
+// проверка вёрстки кадров в настоящем Electron (ciRun): проект из тестовых слов, нужный пресет, формат и шаблон первых двух сцен
+window.__ciGeomJob = (W0, fmt, pk, tpl) => { const keep = JSON.stringify(proj); try {
+  proj.words = JSON.parse(JSON.stringify(W0)); proj.duration = Math.max(10, proj.words[proj.words.length - 1].e + 2); proj.style.start = 0; proj.style.end = proj.duration; proj.style.cuts = [];
+  autoScenes(); proj.style.preset = pk; const p = PRESETS[pk] || {}; if (p.fx) proj.style.fx = Object.assign({}, p.fx); proj.style.format = fmt;
+  proj.scenes.slice(0, 2).forEach(s => { s.tpl = tpl; s.f = {}; delete s.dx; delete s.dy; delete s.scale; delete s.capY; });
+  const spec = buildSpec(false), ts = [0, 1].map(i => { const sc = proj.scenes[i], nx = proj.words[sc.b] ? proj.words[sc.b].t : 1e9; return Math.max(proj.words[sc.a].t + .1, Math.min(proj.words[sc.b - 1].t + .2, nx - .5)); });
+  const [W, H] = FMT[fmt]; return { html: engineHTML(spec, 'app://app/'), W, H, ts };
+} finally { proj = JSON.parse(keep); } };
 async function runSelfTest() {
   if (stBusy) return; stBusy = true; $('#stRun').disabled = true; $('#stBar').style.width = '0'; const st = $('#stStatus'); st.className = 'status'; st.textContent = 'Проверяю компоненты…';
   stLines = [{ group: 'Проверка', name: 'Компоненты', level: 'run', text: 'проверяю…' }]; stRender();

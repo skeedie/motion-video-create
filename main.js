@@ -107,6 +107,7 @@ async function ciRun(dir) {
     } catch (e) { rep.errors.push('export: ' + (e.stack || e.message)); }
     await ciEdge(dir, rep).catch(e => rep.errors.push('краевые случаи: ' + (e.stack || e.message)));
     await ciNN(dir, rep).catch(e => rep.errors.push('нейросети: ' + (e.stack || e.message)));
+    await ciGeom(dir, rep).catch(e => rep.errors.push('вёрстка: ' + (e.stack || e.message)));
   } catch (e) { if (e) rep.errors.push(e.stack || e.message); }
   try { fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(rep, null, 1)); } catch (e) {}
   markClean(); killChildren(); app.exit(rep.errors.length ? 1 : 0);
@@ -131,6 +132,23 @@ async function ciNN(dir, rep) {
 
 // Краевые случаи экспорта: папка и трек с кириллицей, пробелом и апострофом (в том числе временная папка), вырезки, громкость,
 // MOV с прозрачностью, WebM, GIF, стикер, 60 к/с и 1 с, длинный ролик, файл занят, видео поверх трека, нет трека, отмена, запуск установщика.
+// вёрстка кадров в настоящем Electron: карточка и текст не выходят за кадр (тот же замер, что в dev/tests/geometry.py)
+const GEOM_JS = `(()=>{ const vw=innerWidth, vh=innerHeight, vis=el=>{ let o=1; for(let e=el;e&&e.nodeType===1;e=e.parentElement){ const cs=getComputedStyle(e); if(cs.display==='none'||cs.visibility==='hidden') return 0; o*=+cs.opacity; } return o; }, P=[];
+ const cards=[...document.querySelectorAll('.wslot .wscale')].filter(e=>vis(e)>.5).map(e=>e.getBoundingClientRect()).filter(r=>r.width>4);
+ for(const r of cards){ const o=Math.max(-r.left, r.right-vw, -r.top, r.bottom-vh); if(o>6) P.push('карточка за краем на '+Math.round(o)+'px ('+[r.left,r.top,r.width,r.height].map(Math.round).join(',')+')'); }
+ return P; })()`;
+async function ciGeom(dir, rep) {
+  const W0 = JSON.parse(fs.readFileSync(path.join(__dirname, 'dev', 'tests', 'data', 'words.json'), 'utf8')), words = (W0.words || W0).map(w => ({ w: w.w, t: w.t, e: w.e, line: w.line })), g = rep.geom = [];
+  for (const fmt of ['16:9', '9:16']) for (const pk of ['poster', 'cloud9', 'soft-glow', 'melhor']) for (const tpl of ['chat', 'callfull', 'record', 'notifs', 'player']) {
+    const job = await mainWin.webContents.executeJavaScript(`window.__ciGeomJob(${JSON.stringify(words)}, ${JSON.stringify(fmt)}, ${JSON.stringify(pk)}, ${JSON.stringify(tpl)})`); JOB_HTML = job.html;
+    const win = await openEngine(job.W, job.H, 1, false);
+    try { for (const [i, t] of job.ts.entries()) { await frameAt(win, t); const probs = await win.webContents.executeJavaScript(GEOM_JS);
+      if (probs.length) { g.push(`${fmt} ${pk} ${tpl} сцена ${i}: ${probs.join('; ')}`); const img = await freshCapture(win); fs.writeFileSync(path.join(dir, `geom-${fmt.replace(':', 'x')}-${pk}-${tpl}-${i}.jpg`), img.toJPEG(80)); } } }
+    finally { win.destroy(); }
+  }
+  if (g.length) rep.errors.push(`вёрстка: ${g.length} кадров с карточкой за краем (подробности в geom)`);
+}
+
 async function ciEdge(dir, rep) {
   const sleep = ms => new Promise(r => setTimeout(r, ms)), E = rep.edge = {}, err = (k, m) => rep.errors.push(`${k}: ${m}`), win = process.platform === 'win32';
   const K = path.join(dir, "Тест О'Нил проект"), TMP = path.join(K, 'временные файлы'), keepEnv = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
